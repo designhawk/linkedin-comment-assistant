@@ -2,6 +2,19 @@
  * LinkedIn Comment Assistant - Sidepanel Script
  */
 
+// Configuration Constants
+const CONFIG = {
+  TIMEOUTS: {
+    COPY_FEEDBACK: 2000,      // 2 seconds
+    SPEED_TEST_DELAY: 500,    // 0.5 seconds
+    SAVE_MESSAGE: 3000        // 3 seconds
+  },
+  DEBUG: false
+};
+
+// Conditional logger
+const log = CONFIG.DEBUG ? console.log : () => {};
+
 document.addEventListener('DOMContentLoaded', async () => {
   // Elements
   const apiKeyInput = document.getElementById('apiKey');
@@ -384,7 +397,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       
       // Small delay between tests to avoid rate limiting
       if (i < models.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, CONFIG.TIMEOUTS.SPEED_TEST_DELAY));
       }
     }
     
@@ -468,9 +481,128 @@ document.addEventListener('DOMContentLoaded', async () => {
     testAllSpeedsBtn.disabled = false;
     testAllSpeedsBtn.textContent = '⚡ Test All Models';
     
-    setTimeout(() => {
-      saveMessage.style.display = 'none';
-    }, 8000);
+      setTimeout(() => {
+        saveMessage.style.display = 'none';
+      }, CONFIG.TIMEOUTS.SAVE_MESSAGE);
+    } catch (error) {
+      console.error('Failed to fetch models:', error);
+      modelSelect.innerHTML = '<option>Error loading</option>';
+      
+      saveMessage.textContent = `Error: ${error.message}`;
+      saveMessage.className = 'save-message error';
+    } finally {
+      refreshModelsBtn.disabled = false;
+    }
+  }
+
+  // Toggle API key visibility
+  toggleApiKeyBtn.addEventListener('click', () => {
+    const type = apiKeyInput.type === 'password' ? 'text' : 'password';
+    apiKeyInput.type = type;
+    toggleApiKeyBtn.textContent = type === 'password' ? '👁️' : '🙈';
+  });
+
+  // Test API key
+  testApiKeyBtn.addEventListener('click', async () => {
+    const apiKey = apiKeyInput.value.trim();
+    
+    if (!apiKey) {
+      apiKeyValidation.textContent = 'Enter an API key';
+      apiKeyValidation.className = 'validation-message error';
+      return;
+    }
+
+    testApiKeyBtn.disabled = true;
+    testApiKeyBtn.textContent = 'Testing...';
+    apiKeyValidation.style.display = 'none';
+
+    try {
+      const result = await chrome.runtime.sendMessage({
+        action: 'testApiKey',
+        apiKey: apiKey
+      });
+
+      if (chrome.runtime.lastError) {
+        throw new Error(chrome.runtime.lastError.message);
+      }
+
+      if (result.valid) {
+        apiKeyValidation.textContent = '✓ API key is valid!';
+        apiKeyValidation.className = 'validation-message success';
+      } else {
+        apiKeyValidation.textContent = `✗ ${result.error || 'Invalid API key'}`;
+        apiKeyValidation.className = 'validation-message error';
+      }
+    } catch (error) {
+      apiKeyValidation.textContent = `✗ Error: ${error.message}`;
+      apiKeyValidation.className = 'validation-message error';
+    } finally {
+      testApiKeyBtn.disabled = false;
+      testApiKeyBtn.textContent = 'Test Connection';
+    }
+  });
+
+  // Handle model selection change
+  modelSelect.addEventListener('change', async () => {
+    const selectedId = modelSelect.value;
+    if (selectedId) {
+      await loadSpeedInfo();
+    } else {
+      testSpeedBtn.disabled = true;
+      testAllSpeedsBtn.disabled = true;
+      speedInfo.style.display = 'none';
+    }
+  });
+
+  // Refresh models
+  refreshModelsBtn.addEventListener('click', () => {
+    fetchAndPopulateModels(modelSelect.value);
+  });
+
+  // Save settings
+  saveBtn.addEventListener('click', async () => {
+    const apiKey = apiKeyInput.value.trim();
+    const selectedModel = modelSelect.value;
+    const userProfile = userProfileInput.value.trim();
+
+    // Validation
+    if (!apiKey) {
+      saveMessage.textContent = 'Please enter your API key';
+      saveMessage.className = 'save-message error';
+      return;
+    }
+
+    if (!selectedModel) {
+      saveMessage.textContent = 'Please select a model';
+      saveMessage.className = 'save-message error';
+      return;
+    }
+
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
+    saveMessage.style.display = 'none';
+
+    try {
+      await chrome.storage.local.set({
+        apiKey: apiKey,
+        selectedModel: selectedModel,
+        userProfile: userProfile
+      });
+
+      saveMessage.textContent = '✓ Settings saved!';
+      saveMessage.className = 'save-message success';
+      
+      setTimeout(() => {
+        saveMessage.style.display = 'none';
+      }, CONFIG.TIMEOUTS.SAVE_MESSAGE);
+    } catch (error) {
+      console.error('Failed to save:', error);
+      saveMessage.textContent = `✗ Error: ${error.message}`;
+      saveMessage.className = 'save-message error';
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = '💾 Save Settings';
+    }
   });
   
   // Load and display speed info

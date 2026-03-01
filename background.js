@@ -7,8 +7,28 @@
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
 
-// Cache duration for models list (24 hours)
-const MODELS_CACHE_DURATION = 24 * 60 * 60 * 1000;
+// Configuration Constants
+const CONFIG = {
+  // Cache duration for models list (24 hours)
+  CACHE_DURATION: 24 * 60 * 60 * 1000,
+  // API Configuration
+  API: {
+    MAX_TOKENS: 250,
+    TEMPERATURE: 0.85,
+    TEST_MAX_TOKENS: 10,
+    TEST_TEMPERATURE: 0.7
+  },
+  // Speed test tracking
+  SPEED_TEST: {
+    MAX_STORED_TIMES: 5
+  },
+  // Debug mode
+  DEBUG: false
+};
+
+// Conditional logger
+const log = CONFIG.DEBUG ? console.log : () => {};
+const logError = CONFIG.DEBUG ? console.error : () => {};
 
 // Listen for messages from content script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -161,8 +181,8 @@ async function handleGenerateComments(data) {
             content: prompt
           }
         ],
-        temperature: 0.85,
-        max_tokens: 250
+        temperature: CONFIG.API.TEMPERATURE,
+        max_tokens: CONFIG.API.MAX_TOKENS
       })
     });
 
@@ -588,7 +608,7 @@ async function fetchFreeModels() {
   
   if (cached.availableModels && cached.modelsLastUpdated) {
     const age = Date.now() - cached.modelsLastUpdated;
-    if (age < MODELS_CACHE_DURATION) {
+    if (age < CONFIG.CACHE_DURATION) {
       console.log('[Background] Using cached models list');
       return cached.availableModels;
     }
@@ -643,7 +663,7 @@ async function testApiKey(apiKey, modelId = 'meta-llama/llama-3.1-8b-instruct') 
       body: JSON.stringify({
         model: modelId,
         messages: [{ role: 'user', content: 'Say "API key is valid"' }],
-        max_tokens: 10
+        max_tokens: CONFIG.API.TEST_MAX_TOKENS
       })
     });
 
@@ -684,9 +704,9 @@ async function saveModelResponseTime(modelId, responseTime) {
       };
     }
     
-    // Keep last 5 response times
+    // Keep last N response times
     times[modelId].times.push(responseTime);
-    if (times[modelId].times.length > 5) {
+    if (times[modelId].times.length > CONFIG.SPEED_TEST.MAX_STORED_TIMES) {
       times[modelId].times.shift();
     }
     

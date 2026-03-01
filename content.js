@@ -6,6 +6,24 @@
 (function() {
   'use strict';
 
+  // Configuration Constants
+  const CONFIG = {
+    TIMEOUTS: {
+      REQUEST: 30000,
+      RETRY_DELAY: 1000,
+      ERROR_DISPLAY: 5000,
+      COPY_FEEDBACK: 2000
+    },
+    RETRY: {
+      MAX_ATTEMPTS: 3
+    },
+    DEBUG: false
+  };
+
+  // Conditional logger
+  const log = CONFIG.DEBUG ? console.log : () => {};
+  const error = CONFIG.DEBUG ? console.error : () => {};
+
   // State
   let currentPostData = null;
   let currentCommentBox = null;
@@ -821,7 +839,7 @@
               }
             }),
             new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Request timeout')), 30000)
+              setTimeout(() => reject(new Error('Request timeout')), CONFIG.TIMEOUTS.REQUEST)
             )
           ]);
           
@@ -848,6 +866,15 @@
           throw new Error(response.error);
         }
 
+        // Validate response format
+        if (!response.comments || !Array.isArray(response.comments)) {
+          throw new Error('Invalid response format: comments array missing');
+        }
+
+        if (response.comments.length === 0) {
+          throw new Error('No comments generated');
+        }
+
         // Success!
         displayGeneratedComments(response.comments, commentType, response.usedFallback, response.model);
         return; // Exit the function on success
@@ -867,7 +894,7 @@
         
         // Wait before retrying (except on last attempt)
         if (attempt < maxRetries) {
-          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+          await new Promise(resolve => setTimeout(resolve, CONFIG.TIMEOUTS.RETRY_DELAY * (attempt + 1)));
         }
       }
     }
@@ -1140,7 +1167,7 @@
     `;
     container.appendChild(error);
 
-    setTimeout(() => error.remove(), 5000);
+    setTimeout(() => error.remove(), CONFIG.TIMEOUTS.ERROR_DISPLAY);
   }
 
   // Start
