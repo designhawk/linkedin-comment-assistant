@@ -1,0 +1,502 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background: #f3f2ef;
+  min-height: 100vh;
+  font-size: 14px;
+}
+
+.container {
+  background: white;
+  min-height: 100vh;
+}
+
+/* Compact Header */
+.header {
+  background: linear-gradient(135deg, #0a66c2 0%, #0077b5 100%);
+  color: white;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo {
+  font-size: 32px;
+}
+
+.header-text h1 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.header-text p {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+/* Main Content */
+.main-content {
+  padding-bottom: 60px;
+}
+
+/* Settings Sections */
+.settings-section {
+  padding: 16px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.section-icon {
+  font-size: 18px;
+}
+
+.section-header h2 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+}
+
+/* Form Elements */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #333;
+  display: none; /* Hidden in compact view */
+}
+
+.input-group {
+  display: flex;
+  gap: 8px;
+}
+
+input[type="password"],
+input[type="text"],
+select,
+textarea {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: #0a66c2;
+}
+
+select {
+  cursor: pointer;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+/* Toggle Button */
+.toggle-btn {
+  padding: 8px 12px;
+  background: #f3f2ef;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.2s;
+}
+
+.toggle-btn:hover {
+  background: #e5e5e5;
+}
+
+/* Help Text */
+.help-text {
+  font-size: 12px;
+  color: #666;
+  margin: 0;
+}
+
+.help-text a {
+  color: #0a66c2;
+  text-decoration: none;
+}
+
+.help-text a:hover {
+  text-decoration: underline;
+}
+
+/* Validation Message */
+.validation-message {
+  font-size: 12px;
+  padding: 8px;
+  border-radius: 6px;
+  display: none;
+}
+
+.validation-message.success {
+  display: block;
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.validation-message.error {
+  display: block;
+  background: #ffebee;
+  color: #c62828;
+}
+
+/* Buttons */
+.test-btn,
+.refresh-btn,
+.clear-btn {
+  padding: 8px 16px;
+  border: 1px solid #ddd;
+  border-radius: 20px;
+  background: white;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.test-btn:hover,
+.refresh-btn:hover {
+  background: #f3f2ef;
+}
+
+.clear-btn {
+  background: #ffebee;
+  color: #d32f2f;
+  border-color: #ffcdd2;
+}
+
+.clear-btn:hover {
+  background: #ffcdd2;
+}
+
+/* Save Section */
+.save-section {
+  border-bottom: none;
+  padding: 20px 16px;
+}
+
+.save-btn {
+  width: 100%;
+  padding: 12px;
+  background: #0a66c2;
+  color: white;
+  border: none;
+  border-radius: 24px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 0.2s;
+}
+
+.save-btn:hover {
+  background: #004182;
+}
+
+.save-message {
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  text-align: center;
+  display: none;
+}
+
+.save-message.success {
+  display: block;
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.save-message.error {
+  display: block;
+  background: #ffebee;
+  color: #c62828;
+}
+
+/* Speed Test Buttons */
+.speed-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.speed-btn {
+  flex: 1;
+  padding: 10px;
+  background: #fff8e1;
+  border: 1px solid #ffc107;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: #f57c00;
+  transition: all 0.2s;
+}
+
+.speed-btn:hover:not(:disabled) {
+  background: #ffecb3;
+}
+
+.speed-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.speed-btn-all {
+  flex: 1;
+  padding: 10px;
+  background: #e3f2fd;
+  border: 1px solid #2196f3;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1976d2;
+  transition: all 0.2s;
+}
+
+.speed-btn-all:hover:not(:disabled) {
+  background: #bbdefb;
+}
+
+.speed-btn-all:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Speed Info */
+.speed-info {
+  margin-top: 12px;
+  padding: 12px;
+  background: #f5f5f5;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+}
+
+.speed-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.speed-row:last-child {
+  border-bottom: none;
+}
+
+.speed-label {
+  font-size: 12px;
+  color: #666;
+}
+
+.speed-value {
+  font-size: 12px;
+  color: #999;
+  font-weight: 500;
+}
+
+.speed-value.tested {
+  color: #2e7d32;
+}
+
+.speed-value.fastest {
+  color: #f57c00;
+}
+
+.speed-highlight {
+  background: #fff8e1;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+/* Speed Progress */
+.speed-progress {
+  margin-top: 12px;
+  padding: 12px;
+  background: #f5f5f5;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+}
+
+.progress-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 8px;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background: #e0e0e0;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4caf50, #8bc34a);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+  width: 0%;
+}
+
+.progress-current {
+  font-size: 11px;
+  color: #666;
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* All Speeds Results */
+.all-speeds {
+  margin-top: 12px;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.all-speeds-header {
+  background: #f5f5f5;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.all-speeds-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.all-speeds-item {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 13px;
+}
+
+.all-speeds-item:last-child {
+  border-bottom: none;
+}
+
+.all-speeds-item.fastest {
+  background: #e8f5e9;
+}
+
+.speed-rank {
+  width: 30px;
+  font-weight: 600;
+  color: #666;
+}
+
+.speed-name {
+  flex: 1;
+  color: #333;
+  margin-right: 8px;
+}
+
+.speed-time {
+  font-weight: 600;
+  color: #2e7d32;
+  white-space: nowrap;
+}
+
+.all-speeds-item.fastest .speed-time {
+  color: #f57c00;
+}
+
+.all-speeds-item.failed {
+  opacity: 0.6;
+}
+
+.speed-error {
+  font-size: 11px;
+  color: #d32f2f;
+}
+
+.all-speeds-failed-header {
+  background: #ffebee;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #c62828;
+  border-bottom: 1px solid #ffcdd2;
+}
+
+/* Footer */
+.footer {
+  padding: 12px;
+  text-align: center;
+  background: #f9f9f9;
+  border-top: 1px solid #e0e0e0;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+}
+
+.footer p {
+  font-size: 11px;
+  color: #999;
+}
+
+/* Loading State */
+.loading {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #999;
+}

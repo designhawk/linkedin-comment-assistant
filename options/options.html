@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LinkedIn Comment Assistant - Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div class="header-content">
+        <div class="logo">💬</div>
+        <div class="header-text">
+          <h1>LinkedIn Comment Assistant</h1>
+          <p>Settings &amp; Configuration</p>
+        </div>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <!-- API Key Section -->
+      <section class="settings-section">
+        <div class="section-header">
+          <span class="section-icon">🔑</span>
+          <h2>OpenRouter API Key</h2>
+        </div>
+        
+        <div class="form-group">
+          <label for="apiKey">Your API Key</label>
+          <div class="input-group">
+            <input 
+              type="password" 
+              id="apiKey" 
+              placeholder="sk-or-v1-..."
+              autocomplete="off"
+            >
+            <button type="button" class="toggle-btn" id="toggleApiKey">👁️</button>
+          </div>
+          <p class="help-text">
+            Get your free API key from <a href="https://openrouter.ai/keys" target="_blank">OpenRouter</a>
+          </p>
+          
+          <div class="validation-message" id="apiKeyValidation"></div>
+          
+          <button type="button" class="test-btn" id="testApiKeyBtn">
+            Test Connection
+          </button>
+        </div>
+      </section>
+
+      <!-- Model Selection Section -->
+      <section class="settings-section">
+        <div class="section-header">
+          <span class="section-icon">🤖</span>
+          <h2>AI Model</h2>
+        </div>
+        
+        <div class="form-group">
+          <label for="modelSelect">Select Free Model</label>
+          <select id="modelSelect" disabled>
+            <option value="">Loading models...</option>
+          </select>
+          
+          <div class="model-info" id="modelInfo"></div>
+          
+          <button type="button" class="refresh-btn" id="refreshModelsBtn">
+            🔄 Refresh Model List
+          </button>
+          
+          <p class="help-text">
+            Models are fetched from OpenRouter. Only free models are shown.
+          </p>
+        </div>
+      </section>
+
+      <!-- User Profile Section -->
+      <section class="settings-section">
+        <div class="section-header">
+          <span class="section-icon">👤</span>
+          <h2>About You (Optional)</h2>
+        </div>
+        
+        <div class="form-group">
+          <label for="userProfile">Brief Profile</label>
+          <textarea 
+            id="userProfile" 
+            rows="4"
+            placeholder="Example: I'm a software engineer passionate about AI and web development. I like to share technical insights and ask thoughtful questions about industry trends."
+          ></textarea>
+          
+          <p class="help-text">
+            This helps the AI personalize comments to your style and expertise. 
+            2-3 sentences is perfect.
+          </p>
+        </div>
+      </section>
+
+      <!-- Save Section -->
+      <section class="settings-section save-section">
+        <button type="button" class="save-btn" id="saveBtn">
+          💾 Save Settings
+        </button>
+        
+        <div class="save-message" id="saveMessage"></div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>LinkedIn Comment Assistant v1.0.0</p>
+    </footer>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

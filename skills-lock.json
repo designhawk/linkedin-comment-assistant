@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "skills": {
+    "chrome-extension": {
+      "source": "pproenca/dot-skills",
+      "sourceType": "github",
+      "computedHash": "4f35f0c845cf24ec080a676a570625c38b579658e97fd91696311555a02ae440"
+    },
+    "chrome-extension-ui": {
+      "source": "pproenca/dot-skills",
+      "sourceType": "github",
+      "computedHash": "c4ba98e09999f76f4ab145dbcd8b4deee38bb119e89a7eb99029a3af70db457c"
+    }
+  }
+}

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LinkedIn Comment Assistant</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <header class="popup-header">
+      <div class="logo">💬</div>
+      <h1>LinkedIn Comment Assistant</h1>
+    </header>
+
+    <div class="status-section" id="statusSection">
+      <div class="status-indicator" id="statusIndicator">
+        <span class="status-dot"></span>
+        <span class="status-text">Checking configuration...</span>
+      </div>
+    </div>
+
+    <div class="quick-actions">
+      <button class="action-btn primary" id="openSettingsBtn">
+        <span class="icon">⚙️</span>
+        <span>Open Sidepanel</span>
+      </button>
+      
+      <button class="action-btn" id="refreshModelsBtn">
+        <span class="icon">🔄</span>
+        <span>Refresh Models</span>
+      </button>
+    </div>
+
+    <div class="info-section">
+      <h3>How to use:</h3>
+      <ol>
+        <li>Add your OpenRouter API key in Settings</li>
+        <li>Optionally add your profile info for personalization</li>
+        <li>Go to LinkedIn and click any comment box</li>
+        <li>Click "💡 Suggest Types" button</li>
+        <li>Select a comment type</li>
+        <li>Choose and use the generated comment</li>
+      </ol>
+    </div>
+
+    <footer class="popup-footer">
+      <a href="https://openrouter.ai" target="_blank" class="footer-link">
+        Get OpenRouter API Key →
+      </a>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

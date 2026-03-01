@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LinkedIn Comment Assistant</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Compact Header -->
+    <header class="header">
+      <div class="logo">💬</div>
+      <div class="header-text">
+        <h1>LinkedIn Comment Assistant</h1>
+        <p>Settings</p>
+      </div>
+    </header>
+
+    <!-- Settings -->
+    <main class="main-content">
+      <!-- API Key Section -->
+      <section class="settings-section">
+        <div class="section-header">
+          <span class="section-icon">🔑</span>
+          <h2>API Key</h2>
+        </div>
+        
+        <div class="form-group">
+          <div class="input-group">
+            <input 
+              type="password" 
+              id="apiKey" 
+              placeholder="sk-or-v1-..."
+              autocomplete="off"
+            >
+            <button type="button" class="toggle-btn" id="toggleApiKey">👁️</button>
+          </div>
+          <p class="help-text">
+            Get key from <a href="https://openrouter.ai/keys" target="_blank">OpenRouter</a>
+          </p>
+          
+          <div class="validation-message" id="apiKeyValidation"></div>
+          
+          <button type="button" class="test-btn" id="testApiKeyBtn">
+            Test Connection
+          </button>
+        </div>
+      </section>
+
+      <!-- Model Selection Section -->
+      <section class="settings-section">
+        <div class="section-header">
+          <span class="section-icon">🤖</span>
+          <h2>AI Model</h2>
+        </div>
+        
+        <div class="form-group">
+          <select id="modelSelect" disabled>
+            <option value="">Loading...</option>
+          </select>
+          
+          <!-- Speed Test Buttons -->
+          <div class="speed-buttons">
+            <button type="button" class="speed-btn" id="testSpeedBtn" disabled>
+              ⚡ Test Current
+            </button>
+            <button type="button" class="speed-btn-all" id="testAllSpeedsBtn" disabled>
+              ⚡ Test All Models
+            </button>
+          </div>
+          
+          <!-- Progress Section -->
+          <div class="speed-progress" id="speedProgress" style="display: none;">
+            <div class="progress-text">Testing models... <span id="progressCount">0/0</span></div>
+            <div class="progress-bar">
+              <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="progress-current" id="progressCurrent"></div>
+          </div>
+          
+          <!-- Speed Info Section -->
+          <div class="speed-info" id="speedInfo" style="display: none;">
+            <div class="speed-row">
+              <span class="speed-label">Current model:</span>
+              <span class="speed-value" id="currentModelTime">--</span>
+            </div>
+            <div class="speed-row">
+              <span class="speed-label">Fastest model:</span>
+              <span class="speed-value" id="fastestModelTime">--</span>
+            </div>
+          </div>
+          
+          <!-- All Models Results -->
+          <div class="all-speeds" id="allSpeeds" style="display: none;">
+            <div class="all-speeds-header">📊 All Models Ranked by Speed</div>
+            <div class="all-speeds-list" id="allSpeedsList"></div>
+          </div>
+          
+          <button type="button" class="refresh-btn" id="refreshModelsBtn">
+            🔄 Refresh Models
+          </button>
+        </div>
+      </section>
+
+      <!-- User Profile Section -->
+      <section class="settings-section">
+        <div class="section-header">
+          <span class="section-icon">👤</span>
+          <h2>About You</h2>
+        </div>
+        
+        <div class="form-group">
+          <textarea 
+            id="userProfile" 
+            rows="3"
+            placeholder="I'm a software engineer passionate about AI..."
+          ></textarea>
+          
+          <p class="help-text">
+            Helps AI personalize comments to your style.
+          </p>
+        </div>
+      </section>
+
+      <!-- Save Section -->
+      <section class="settings-section save-section">
+        <button type="button" class="save-btn" id="saveBtn">
+          💾 Save Settings
+        </button>
+        
+        <div class="save-message" id="saveMessage"></div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>v1.0.0</p>
+    </footer>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>
