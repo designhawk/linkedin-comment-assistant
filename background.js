@@ -20,7 +20,8 @@ const CONFIG = {
   },
   // Speed test tracking
   SPEED_TEST: {
-    MAX_STORED_TIMES: 5
+    MAX_STORED_TIMES: 5,
+    TEST_MESSAGE: 'Say "API key is valid"'
   },
   // Debug mode
   DEBUG: false
@@ -29,6 +30,209 @@ const CONFIG = {
 // Conditional logger
 const log = CONFIG.DEBUG ? console.log : () => {};
 const logError = CONFIG.DEBUG ? console.error : () => {};
+
+// ============================================================================
+// Response Validation Functions
+// ============================================================================
+
+/**
+ * Validates the OpenRouter chat completion API response structure
+ * @param {any} response - The parsed JSON response from the API
+ * @returns {{ valid: boolean, error?: string, content?: string }}
+ */
+function validateChatCompletionResponse(response) {
+  // Check if response is an object
+  if (!response || typeof response !== 'object') {
+    return { valid: false, error: 'Response is not a valid object' };
+  }
+
+  // Check for error field (OpenRouter returns errors in the response)
+  if (response.error) {
+    const errorMessage = response.error.message || response.error.code || 'Unknown API error';
+    return { valid: false, error: `API Error: ${errorMessage}` };
+  }
+
+  // Check for required top-level fields
+  if (!response.id || typeof response.id !== 'string') {
+    return { valid: false, error: 'Missing or invalid response ID' };
+  }
+
+  if (!response.choices || !Array.isArray(response.choices)) {
+    return { valid: false, error: 'Missing or invalid choices array' };
+  }
+
+  if (response.choices.length === 0) {
+    return { valid: false, error: 'Choices array is empty' };
+  }
+
+  // Validate first choice structure
+  const firstChoice = response.choices[0];
+  if (!firstChoice || typeof firstChoice !== 'object') {
+    return { valid: false, error: 'First choice is not a valid object' };
+  }
+
+  // Check for message structure
+  if (!firstChoice.message || typeof firstChoice.message !== 'object') {
+    return { valid: false, error: 'Missing or invalid message object in choice' };
+  }
+
+  // Extract and validate content
+  const content = firstChoice.message.content;
+  if (content === undefined || content === null) {
+    return { valid: false, error: 'Message content is null or undefined' };
+  }
+
+  if (typeof content !== 'string') {
+    return { valid: false, error: `Message content is not a string (got ${typeof content})` };
+  }
+
+  if (content.trim().length === 0) {
+    return { valid: false, error: 'Message content is empty' };
+  }
+
+  // Validate finish_reason if present
+  if (firstChoice.finish_reason && firstChoice.finish_reason === 'length') {
+    log('[Background] Warning: Response was truncated due to length');
+  }
+
+  return { valid: true, content: content.trim() };
+}
+
+/**
+ * Validates the OpenRouter models list API response
+ * @param {any} response - The parsed JSON response from the API
+ * @returns {{ valid: boolean, error?: string, models?: Array }}
+ */
+function validateModelsResponse(response) {
+  // Check if response is an object
+  if (!response || typeof response !== 'object') {
+    return { valid: false, error: 'Models response is not a valid object' };
+  }
+
+  // Check for error field
+  if (response.error) {
+    const errorMessage = response.error.message || response.error.code || 'Unknown API error';
+    return { valid: false, error: `API Error: ${errorMessage}` };
+  }
+
+  // Check for data array
+  if (!response.data || !Array.isArray(response.data)) {
+    return { valid: false, error: 'Missing or invalid data array in models response' };
+  }
+
+  // Validate each model has required fields
+  const validModels = [];
+  for (let i = 0; i < response.data.length; i++) {
+    const model = response.data[i];
+    
+    // Skip invalid model entries
+    if (!model || typeof model !== 'object') {
+      log(`[Background] Warning: Model at index ${i} is not a valid object`);
+      continue;
+    }
+
+    // Check required fields
+    if (!model.id || typeof model.id !== 'string') {
+      log(`[Background] Warning: Model at index ${i} missing valid ID`);
+      continue;
+    }
+
+    // Model is valid enough to use
+    validModels.push(model);
+  }
+
+  return { valid: true, models: validModels };
+}
+
+/**
+ * Validates a parsed comment object
+ * @param {any} comment - The comment object to validate
+ * @param {number} index - Index for logging purposes
+ * @returns {{ valid: boolean, text?: string, error?: string }}
+ */
+function validateCommentObject(comment, index) {
+  // Handle string comments (convert to object)
+  if (typeof comment === 'string') {
+    const trimmed = comment.trim();
+    if (trimmed.length === 0) {
+      return { valid: false, error: `Comment ${index} is empty string` };
+    }
+    if (trimmed.length > 2000) {
+      log(`[Background] Warning: Comment ${index} exceeds 2000 chars, truncating`);
+      return { valid: true, text: trimmed.substring(0, 2000) };
+    }
+    return { valid: true, text: trimmed };
+  }
+
+  // Check if comment is an object
+  if (!comment || typeof comment !== 'object') {
+    return { valid: false, error: `Comment ${index} is not a valid object or string` };
+  }
+
+  // Check for text field
+  if (comment.text === undefined || comment.text === null) {
+    // Try alternative fields
+    const textValue = comment.content || comment.message || comment.comment;
+    if (typeof textValue === 'string') {
+      const trimmed = textValue.trim();
+      if (trimmed.length > 0) {
+        return { valid: true, text: trimmed.substring(0, 2000) };
+      }
+    }
+    return { valid: false, error: `Comment ${index} missing valid text field` };
+  }
+
+  // Validate text field
+  const text = String(comment.text).trim();
+  if (text.length === 0) {
+    return { valid: false, error: `Comment ${index} has empty text` };
+  }
+
+  if (text.length > 2000) {
+    log(`[Background] Warning: Comment ${index} exceeds 2000 chars, truncating`);
+    return { valid: true, text: text.substring(0, 2000) };
+  }
+
+  return { valid: true, text };
+}
+
+/**
+ * Validates the final comments array before returning to content script
+ * @param {Array} comments - The parsed comments array
+ * @returns {{ valid: boolean, error?: string, comments?: Array }}
+ */
+function validateFinalCommentsArray(comments) {
+  if (!Array.isArray(comments)) {
+    return { valid: false, error: 'Comments is not an array' };
+  }
+
+  if (comments.length === 0) {
+    return { valid: false, error: 'No valid comments could be extracted' };
+  }
+
+  // Validate each comment and filter out invalid ones
+  const validComments = [];
+  for (let i = 0; i < comments.length; i++) {
+    const validation = validateCommentObject(comments[i], i);
+    if (validation.valid) {
+      validComments.push({ text: validation.text });
+    } else {
+      log(`[Background] Skipping invalid comment: ${validation.error}`);
+    }
+  }
+
+  if (validComments.length === 0) {
+    return { valid: false, error: 'All comments were invalid after validation' };
+  }
+
+  // Limit to maximum 5 comments
+  if (validComments.length > 5) {
+    log(`[Background] Limiting ${validComments.length} comments to 5`);
+    validComments.splice(5);
+  }
+
+  return { valid: true, comments: validComments };
+}
 
 // Listen for messages from content script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -198,20 +402,17 @@ async function handleGenerateComments(data) {
     console.log('[Background] API result received, has choices:', !!result.choices);
     console.log('[Background] Full result keys:', Object.keys(result));
     
-    if (!result.choices || !result.choices[0] || !result.choices[0].message) {
-      console.error('[Background] Invalid response structure:', result);
-      throw new Error('Invalid response from API');
+    // Validate the API response structure
+    const validation = validateChatCompletionResponse(result);
+    if (!validation.valid) {
+      console.error('[Background] Response validation failed:', validation.error);
+      throw new Error(`Invalid API response: ${validation.error}`);
     }
 
-    // Parse the response to extract comments
-    const content = result.choices[0].message.content;
-    console.log('[Background] Raw API content length:', content ? content.length : 0);
-    console.log('[Background] Raw API content:', content ? content.substring(0, 500) : 'EMPTY');
-    
-    if (!content || content.trim().length === 0) {
-      console.error('[Background] Empty content received from API');
-      throw new Error('API returned empty response. The model may be overloaded or the prompt too long.');
-    }
+    // Extract the validated content
+    const content = validation.content;
+    console.log('[Background] Validated API content length:', content.length);
+    console.log('[Background] Raw API content:', content.substring(0, 500));
     
     const comments = parseCommentsFromResponse(content);
     console.log('[Background] Parsed comments:', comments.length);
@@ -524,19 +725,37 @@ function parseCommentsFromResponse(content) {
     console.log('[Background] Found JSON match, extracted object');
   }
 
+  let parsedComments = null;
+
   try {
     // Try to parse as JSON
     const parsed = JSON.parse(cleanContent);
     console.log('[Background] Successfully parsed JSON, has comments:', !!parsed.comments);
+    
     if (parsed.comments && Array.isArray(parsed.comments)) {
       console.log('[Background] JSON parsing successful, found', parsed.comments.length, 'comments');
-      // Return comments without styles
-      return parsed.comments.map(c => ({ 
-        text: c.text || String(c)
-      }));
+      parsedComments = parsed.comments;
+    } else if (parsed.comment && typeof parsed.comment === 'string') {
+      // Handle single comment format
+      parsedComments = [{ text: parsed.comment }];
+    } else if (Array.isArray(parsed)) {
+      // Handle direct array format
+      parsedComments = parsed;
+    } else {
+      console.log('[Background] JSON parsed but no recognized comment structure found');
     }
   } catch (e) {
     console.log('[Background] JSON parsing failed:', e.message);
+  }
+
+  // Validate JSON-parsed comments if found
+  if (parsedComments) {
+    const validation = validateFinalCommentsArray(parsedComments);
+    if (validation.valid) {
+      console.log('[Background] JSON comments validated:', validation.comments.length);
+      return validation.comments;
+    }
+    console.log('[Background] JSON comments validation failed:', validation.error);
   }
 
   // Fallback: extract comments using various patterns
@@ -597,8 +816,16 @@ function parseCommentsFromResponse(content) {
     comments.push({ text: cleanContent.substring(0, 400).trim() });
   }
 
-  console.log('[Background] Total comments returned:', comments.length);
-  return comments;
+  // Final validation of fallback comments
+  const finalValidation = validateFinalCommentsArray(comments);
+  if (finalValidation.valid) {
+    console.log('[Background] Total comments returned:', finalValidation.comments.length);
+    return finalValidation.comments;
+  }
+
+  // Ultimate fallback: return the raw content as a single comment
+  console.log('[Background] All validation failed, returning raw content');
+  return [{ text: cleanContent.substring(0, 400).trim() || 'Unable to parse comment' }];
 }
 
 // Fetch free models from OpenRouter
@@ -624,8 +851,14 @@ async function fetchFreeModels() {
 
   const data = await response.json();
   
+  // Validate the models response structure
+  const validation = validateModelsResponse(data);
+  if (!validation.valid) {
+    throw new Error(`Models API response validation failed: ${validation.error}`);
+  }
+  
   // Filter for free models (prompt and completion pricing are both 0)
-  const freeModels = data.data
+  const freeModels = validation.models
     .filter(model => {
       const promptPrice = parseFloat(model.pricing?.prompt || 0);
       const completionPrice = parseFloat(model.pricing?.completion || 0);
@@ -662,7 +895,7 @@ async function testApiKey(apiKey, modelId = 'meta-llama/llama-3.1-8b-instruct') 
       },
       body: JSON.stringify({
         model: modelId,
-        messages: [{ role: 'user', content: 'Say "API key is valid"' }],
+        messages: [{ role: 'user', content: CONFIG.SPEED_TEST.TEST_MESSAGE }],
         max_tokens: CONFIG.API.TEST_MAX_TOKENS
       })
     });
@@ -671,6 +904,19 @@ async function testApiKey(apiKey, modelId = 'meta-llama/llama-3.1-8b-instruct') 
     const responseTime = Math.round(endTime - startTime);
 
     if (response.ok) {
+      // Validate the response structure
+      const data = await response.json();
+      const validation = validateChatCompletionResponse(data);
+      
+      if (!validation.valid) {
+        return { 
+          valid: false, 
+          error: `Response validation failed: ${validation.error}`,
+          responseTime,
+          modelId
+        };
+      }
+      
       // Save the response time
       await saveModelResponseTime(modelId, responseTime);
       return { valid: true, responseTime, modelId };
