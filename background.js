@@ -282,7 +282,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'testApiKey') {
-    testApiKey(request.apiKey, request.modelId)
+    testApiKey(request.apiKey, request.modelId || 'meta-llama/llama-3.1-8b-instruct')
       .then(result => {
         console.log('[Background] API key test result:', result.valid ? 'valid' : 'invalid', 'Time:', result.responseTime + 'ms');
         sendResponse(result);
@@ -339,13 +339,14 @@ async function handleGenerateComments(data) {
   
   // Get settings from storage
   console.log('[Background] Loading settings from storage...');
-  const settings = await chrome.storage.local.get(['apiKey', 'selectedModel', 'userProfile']);
+  const settings = await chrome.storage.local.get(['apiKey', 'selectedModel', 'userProfile', 'customPrompts']);
   console.log('[Background] Settings loaded:', {
     hasApiKey: !!settings.apiKey,
     selectedModel: settings.selectedModel,
-    hasUserProfile: !!settings.userProfile
+    hasUserProfile: !!settings.userProfile,
+    hasCustomPrompts: !!settings.customPrompts
   });
-  
+
   if (!settings.apiKey) {
     console.error('[Background] API key not configured');
     throw new Error('API key not configured. Please add your OpenRouter API key in settings.');
@@ -353,10 +354,11 @@ async function handleGenerateComments(data) {
 
   const model = settings.selectedModel || 'meta-llama/llama-3.1-8b-instruct';
   const userProfile = settings.userProfile || '';
+  const customPrompts = settings.customPrompts || {};
 
   console.log('[Background] Building prompt for comment type:', commentType);
-  // Build the prompt
-  const prompt = buildPrompt(postData, commentType, userProfile);
+  // Build the prompt with custom prompts
+  const prompt = buildPrompt(postData, commentType, userProfile, customPrompts);
   console.log('[Background] Prompt built, length:', prompt.length);
 
   // Reliable fallback model
@@ -443,7 +445,7 @@ async function handleGenerateComments(data) {
 }
 
 // Build the prompt for comment generation
-function buildPrompt(postData, commentType, userProfile) {
+function buildPrompt(postData, commentType, userProfile, customPrompts = {}) {
   // New brand-focused comment types with detailed style guides
   const typeDescriptions = {
     expert_take: 'Share unique insight that positions you as knowledgeable - confident but humble, data-backed when possible',
@@ -631,9 +633,10 @@ INSTEAD, USE:
   prompt += `\n\nCOMMENT TYPE: ${commentType}
 OBJECTIVE: ${typeDescriptions[commentType] || 'write an engaging comment'}`;
 
-  // Add style guide for this comment type
-  if (styleGuides[commentType]) {
-    prompt += `\n\nSTYLE GUIDE FOR THIS COMMENT TYPE:${styleGuides[commentType]}`;
+  // Add style guide for this comment type - use custom prompt if available
+  const styleGuide = customPrompts[commentType] || styleGuides[commentType];
+  if (styleGuide) {
+    prompt += `\n\nSTYLE GUIDE FOR THIS COMMENT TYPE:${styleGuide}`;
   }
 
   if (userProfile) {
@@ -906,9 +909,11 @@ async function testApiKey(apiKey, modelId = 'meta-llama/llama-3.1-8b-instruct') 
     if (response.ok) {
       // Validate the response structure
       const data = await response.json();
+      console.log('[Background] API response data:', JSON.stringify(data).substring(0, 500));
       const validation = validateChatCompletionResponse(data);
       
       if (!validation.valid) {
+        console.error('[Background] Validation failed:', validation.error);
         return { 
           valid: false, 
           error: `Response validation failed: ${validation.error}`,
@@ -1017,9 +1022,8 @@ chrome.runtime.onInstalled.addListener((details) => {
       userProfile: ''
     });
     
-    // Open sidepanel on first install
-    chrome.tabs.create({
-      url: chrome.runtime.getURL('sidepanel/sidepanel.html')
-    });
+    // Enable opening side panel when clicking the toolbar icon
+    chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
+      .catch((error) => console.error('[Background] Failed to set panel behavior:', error));
   }
 });

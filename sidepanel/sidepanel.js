@@ -1,19 +1,153 @@
 /**
  * LinkedIn Comment Assistant - Sidepanel Script
+ * Redesigned with dark interface and prompt editor
  */
 
 // Configuration Constants
 const CONFIG = {
   TIMEOUTS: {
-    COPY_FEEDBACK: 2000,      // 2 seconds
-    SPEED_TEST_DELAY: 500,    // 0.5 seconds
-    SAVE_MESSAGE: 3000        // 3 seconds
+    COPY_FEEDBACK: 2000,
+    SPEED_TEST_DELAY: 500,
+    SAVE_MESSAGE: 3000,
+    TOAST_DURATION: 3000
   },
   DEBUG: false
 };
 
+// Default prompts - these match the background.js defaults
+const DEFAULT_PROMPTS = {
+  expert_take: `WRITE LIKE: Someone sharing a quick insight in the comments, not writing a blog post
+STYLE: Drop one specific fact or counterintuitive take. Don't explain yourself fully.
+GOOD EXAMPLES:
+- "Opposite worked for us. Cut meeting time in half, productivity jumped 30%"
+- "Hot take: Most KPIs measure busy work, not actual impact"
+BAD EXAMPLES:
+- "I completely agree with your assessment..."
+- "In my professional opinion..."
+RULES:
+- One sentence max, maybe two if punchy
+- Skip the setup, just say the thing
+- Use numbers casually ("30%" not "thirty percent")`,
+
+  relatable_story: `WRITE LIKE: Texting a friend who gets it
+STYLE: Brief, messy, maybe trails off. Real humans don't write perfect LinkedIn comments.
+GOOD EXAMPLES:
+- "Oof yeah this happened to me last year. Was so focused on launch I ignored the data saying users were confused"
+- "I used to think I needed all the answers as a manager lol"
+BAD EXAMPLES:
+- "I want to share my journey with..."
+- "Your post really resonated with me..."
+RULES:
+- Write like you're rushing between meetings
+- Imperfect grammar is GOOD (dropping words, starting with "And" or "But")
+- Include one tiny specific detail, not a whole story`,
+
+  thought_question: `WRITE LIKE: Actually curious, not trying to sound smart
+STYLE: Casual question that invites stories, not debate.
+GOOD EXAMPLES:
+- "How did you handle pushback on this? Always struggle with that part"
+- "Curious - has anyone tried the opposite approach?"
+BAD EXAMPLES:
+- "What are your thoughts on..."
+- "Have you considered..."
+RULES:
+- Start with lowercase sometimes ("how do you...")
+- Add "always wondered" or "struggle with" to sound genuine
+- Don't make it sound like an interview`,
+
+  practical_tip: `WRITE LIKE: Slack message to a coworker
+STYLE: One specific shortcut, no context needed.
+GOOD EXAMPLES:
+- "Try scheduling all meetings Tue/Thu only. Mon/Wed/Fri for deep work changed everything"
+- "We started doing async updates instead of standups. Game changer tbh"
+BAD EXAMPLES:
+- "Here are three strategies for..."
+- "I recommend implementing..."
+RULES:
+- Lead with the action ("Try this:" or just say it)
+- One tip only, no list
+- Use "we" or "I" casually`,
+
+  connection_bridge: `WRITE LIKE: Connecting dots in a group chat
+STYLE: "This reminds me of..." but brief and casual.
+GOOD EXAMPLES:
+- "Reminds me of how everyone thought remote work would kill productivity. Same pattern here"
+- "We're seeing this across our industry too. The shift is real"
+BAD EXAMPLES:
+- "This is indicative of a broader trend..."
+- "From a macro perspective..."
+RULES:
+- Casual comparison, not analysis
+- Use "reminds me" or "same thing happened"
+- One sentence, drop the mic`,
+
+  authentic_reaction: `WRITE LIKE: Reacting in real-time
+STYLE: First thought, best thought. Raw and unfiltered.
+GOOD EXAMPLES:
+- "Same. Still recovering from my last job tbh"
+- "Love this. Bookmarked for my team"
+- "Wait this is genius. Why didn't I think of this"
+BAD EXAMPLES:
+- "Congratulations on your achievement"
+- "Thank you for sharing this valuable insight"
+RULES:
+- React immediately, don't polish
+- Use casual abbreviations (tbh, lol, wait)
+- Comment on the feeling, not the facts`
+};
+
+// Comment type labels
+const COMMENT_TYPE_LABELS = {
+  expert_take: 'Expert Take',
+  relatable_story: 'Relatable Story',
+  thought_question: 'Thought Question',
+  practical_tip: 'Practical Tip',
+  connection_bridge: 'Connection Bridge',
+  authentic_reaction: 'Authentic Reaction'
+};
+
+// State
+let availableModels = [];
+let selectedModelId = null;
+let customPrompts = {};
+
 // Conditional logger
 const log = CONFIG.DEBUG ? console.log : () => {};
+
+// Toast notification system
+function showToast(message, type = 'info') {
+  const toast = document.getElementById('toast');
+  
+  let iconSvg = '';
+  if (type === 'success') {
+    iconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polyline points="20 6 9 17 4 12"></polyline>
+    </svg>`;
+  } else if (type === 'error') {
+    iconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="10"></circle>
+      <line x1="15" y1="9" x2="9" y2="15"></line>
+      <line x1="9" y1="9" x2="15" y2="15"></line>
+    </svg>`;
+  }
+  
+  toast.innerHTML = iconSvg + message;
+  toast.className = `toast ${type} visible`;
+  
+  setTimeout(() => {
+    toast.classList.remove('visible');
+  }, CONFIG.TIMEOUTS.TOAST_DURATION);
+}
+
+// Show validation message
+function showValidation(element, message, type = 'error') {
+  element.textContent = message;
+  element.className = `validation-message ${type} visible`;
+  
+  setTimeout(() => {
+    element.classList.remove('visible');
+  }, 5000);
+}
 
 document.addEventListener('DOMContentLoaded', async () => {
   // Elements
@@ -34,37 +168,121 @@ document.addEventListener('DOMContentLoaded', async () => {
   const progressCurrent = document.getElementById('progressCurrent');
   const allSpeeds = document.getElementById('allSpeeds');
   const allSpeedsList = document.getElementById('allSpeedsList');
-  const userProfileInput = document.getElementById('userProfile');
+  const promptsContainer = document.getElementById('promptsContainer');
   const saveBtn = document.getElementById('saveBtn');
-  const saveMessage = document.getElementById('saveMessage');
+  const eyeIcon = toggleApiKeyBtn.querySelector('.eye-icon');
+  const eyeOffIcon = toggleApiKeyBtn.querySelector('.eye-off-icon');
 
   // Load saved settings
   async function loadSettings() {
     const settings = await chrome.storage.local.get([
       'apiKey',
       'selectedModel',
-      'userProfile',
-      'availableModels'
+      'availableModels',
+      'customPrompts'
     ]);
 
     if (settings.apiKey) {
       apiKeyInput.value = settings.apiKey;
     }
 
-    if (settings.userProfile) {
-      userProfileInput.value = settings.userProfile;
-    }
+    // Load custom prompts or use defaults
+    customPrompts = settings.customPrompts || {};
+    renderPromptEditors();
+
+    selectedModelId = settings.selectedModel || null;
 
     // Load models
     if (settings.availableModels && settings.availableModels.length > 0) {
-      await populateModelSelect(settings.availableModels, settings.selectedModel);
+      availableModels = settings.availableModels;
+      populateModelSelect(availableModels, selectedModelId);
+      await loadSpeedInfo();
     } else {
-      await fetchAndPopulateModels(settings.selectedModel);
+      await fetchAndPopulateModels();
     }
   }
 
+  // Render prompt editors
+  function renderPromptEditors() {
+    promptsContainer.innerHTML = '';
+    
+    Object.keys(DEFAULT_PROMPTS).forEach(type => {
+      const promptItem = document.createElement('div');
+      promptItem.className = 'prompt-item';
+      
+      const isCustom = customPrompts[type] && customPrompts[type] !== DEFAULT_PROMPTS[type];
+      const currentPrompt = customPrompts[type] || DEFAULT_PROMPTS[type];
+      
+      promptItem.innerHTML = `
+        <div class="prompt-header" data-type="${type}">
+          <div class="prompt-title">
+            <span class="prompt-label">${COMMENT_TYPE_LABELS[type]}</span>
+            ${isCustom ? '<span class="prompt-badge">Custom</span>' : ''}
+          </div>
+          <svg class="prompt-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="prompt-editor" style="display: none;">
+          <textarea 
+            class="prompt-textarea" 
+            data-type="${type}"
+            placeholder="Enter custom prompt..."
+            rows="8"
+          >${currentPrompt}</textarea>
+          <div class="prompt-actions">
+            <button class="btn btn-secondary btn-sm prompt-reset" data-type="${type}">
+              Reset to Default
+            </button>
+          </div>
+        </div>
+      `;
+      
+      promptsContainer.appendChild(promptItem);
+    });
+    
+    // Add click handlers for expanding/collapsing
+    promptsContainer.querySelectorAll('.prompt-header').forEach(header => {
+      header.addEventListener('click', () => {
+        const editor = header.nextElementSibling;
+        const chevron = header.querySelector('.prompt-chevron');
+        const isExpanded = editor.style.display !== 'none';
+        
+        // Close all others
+        promptsContainer.querySelectorAll('.prompt-editor').forEach(ed => ed.style.display = 'none');
+        promptsContainer.querySelectorAll('.prompt-chevron').forEach(ch => ch.style.transform = '');
+        
+        // Toggle current
+        if (!isExpanded) {
+          editor.style.display = 'block';
+          chevron.style.transform = 'rotate(180deg)';
+        }
+      });
+    });
+    
+    // Add reset handlers
+    promptsContainer.querySelectorAll('.prompt-reset').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const type = btn.dataset.type;
+        const textarea = promptsContainer.querySelector(`textarea[data-type="${type}"]`);
+        textarea.value = DEFAULT_PROMPTS[type];
+        
+        // Remove custom status
+        delete customPrompts[type];
+        
+        // Update badge
+        const header = btn.closest('.prompt-item').querySelector('.prompt-header');
+        const badge = header.querySelector('.prompt-badge');
+        if (badge) badge.remove();
+        
+        showToast(`${COMMENT_TYPE_LABELS[type]} reset to default`, 'success');
+      });
+    });
+  }
+
   // Populate model dropdown
-  async function populateModelSelect(models, selectedModelId) {
+  function populateModelSelect(models, selectedId) {
     modelSelect.innerHTML = '';
     
     if (models.length === 0) {
@@ -73,24 +291,23 @@ document.addEventListener('DOMContentLoaded', async () => {
       option.textContent = 'No models available';
       modelSelect.appendChild(option);
       modelSelect.disabled = true;
+      testSpeedBtn.disabled = true;
+      testAllSpeedsBtn.disabled = true;
       return;
     }
 
-    // Add default option
     const defaultOption = document.createElement('option');
     defaultOption.value = '';
     defaultOption.textContent = 'Select a model...';
     modelSelect.appendChild(defaultOption);
 
-    // Group by provider
     const grouped = models.reduce((acc, model) => {
-      const provider = model.provider;
+      const provider = model.provider || 'Other';
       if (!acc[provider]) acc[provider] = [];
       acc[provider].push(model);
       return acc;
     }, {});
 
-    // Create option groups
     Object.keys(grouped).sort().forEach(provider => {
       const optgroup = document.createElement('optgroup');
       optgroup.label = provider.charAt(0).toUpperCase() + provider.slice(1);
@@ -98,8 +315,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       grouped[provider].forEach(model => {
         const option = document.createElement('option');
         option.value = model.id;
-        option.textContent = `${model.name} (${model.contextLength.toLocaleString()} tokens)`;
-        if (model.id === selectedModelId) {
+        option.textContent = `${model.name} (${model.contextLength?.toLocaleString() || '?'} tokens)`;
+        if (model.id === selectedId) {
           option.selected = true;
         }
         optgroup.appendChild(option);
@@ -110,16 +327,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     modelSelect.disabled = false;
     
-    // Load speed info if a model is selected
-    if (selectedModelId) {
-      await loadSpeedInfo();
+    if (selectedId) {
+      testSpeedBtn.disabled = false;
+      testAllSpeedsBtn.disabled = false;
     }
   }
 
   // Fetch models from API
-  async function fetchAndPopulateModels(selectedModelId) {
+  async function fetchAndPopulateModels() {
+    modelSelect.innerHTML = '<option value="">Loading...</option>';
     modelSelect.disabled = true;
-    modelSelect.innerHTML = '<option>Loading...</option>';
     refreshModelsBtn.disabled = true;
 
     try {
@@ -133,19 +350,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         throw new Error(response.error);
       }
 
-      await populateModelSelect(response.models, selectedModelId);
+      availableModels = response.models;
+      populateModelSelect(availableModels, selectedModelId);
+      await loadSpeedInfo();
       
-      saveMessage.textContent = `Loaded ${response.models.length} models`;
-      saveMessage.className = 'save-message success';
-      setTimeout(() => {
-        saveMessage.style.display = 'none';
-      }, 3000);
+      showToast(`Loaded ${response.models.length} models`, 'success');
     } catch (error) {
       console.error('Failed to fetch models:', error);
-      modelSelect.innerHTML = '<option>Error loading</option>';
-      
-      saveMessage.textContent = `Error: ${error.message}`;
-      saveMessage.className = 'save-message error';
+      modelSelect.innerHTML = '<option value="">Error loading</option>';
+      showToast(`Failed to load models: ${error.message}`, 'error');
     } finally {
       refreshModelsBtn.disabled = false;
     }
@@ -153,9 +366,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Toggle API key visibility
   toggleApiKeyBtn.addEventListener('click', () => {
-    const type = apiKeyInput.type === 'password' ? 'text' : 'password';
-    apiKeyInput.type = type;
-    toggleApiKeyBtn.textContent = type === 'password' ? '👁️' : '🙈';
+    const isPassword = apiKeyInput.type === 'password';
+    apiKeyInput.type = isPassword ? 'text' : 'password';
+    
+    if (isPassword) {
+      eyeIcon.style.display = 'none';
+      eyeOffIcon.style.display = 'block';
+    } else {
+      eyeIcon.style.display = 'block';
+      eyeOffIcon.style.display = 'none';
+    }
   });
 
   // Test API key
@@ -163,19 +383,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     const apiKey = apiKeyInput.value.trim();
     
     if (!apiKey) {
-      apiKeyValidation.textContent = 'Enter an API key';
-      apiKeyValidation.className = 'validation-message error';
+      showValidation(apiKeyValidation, 'Enter an API key', 'error');
       return;
     }
 
     testApiKeyBtn.disabled = true;
-    testApiKeyBtn.textContent = 'Testing...';
-    apiKeyValidation.style.display = 'none';
+    const originalText = testApiKeyBtn.innerHTML;
+    testApiKeyBtn.innerHTML = `<div class="loading-spinner"></div> Testing...`;
 
     try {
       const result = await chrome.runtime.sendMessage({
         action: 'testApiKey',
-        apiKey: apiKey
+        apiKey: apiKey,
+        modelId: selectedModelId || 'meta-llama/llama-3.1-8b-instruct'
       });
 
       if (chrome.runtime.lastError) {
@@ -183,110 +403,125 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       if (result.valid) {
-        apiKeyValidation.textContent = '✓ API key is valid!';
-        apiKeyValidation.className = 'validation-message success';
+        showValidation(apiKeyValidation, '✓ API key is valid!', 'success');
+        showToast(`Connection successful (${result.responseTime}ms)`, 'success');
       } else {
-        apiKeyValidation.textContent = `✗ ${result.error || 'Invalid API key'}`;
-        apiKeyValidation.className = 'validation-message error';
+        showValidation(apiKeyValidation, result.error || 'Invalid API key', 'error');
+        showToast(result.error || 'Invalid API key', 'error');
       }
     } catch (error) {
-      apiKeyValidation.textContent = `✗ Error: ${error.message}`;
-      apiKeyValidation.className = 'validation-message error';
+      showValidation(apiKeyValidation, `Error: ${error.message}`, 'error');
+      showToast(`Error: ${error.message}`, 'error');
     } finally {
       testApiKeyBtn.disabled = false;
-      testApiKeyBtn.textContent = 'Test Connection';
+      testApiKeyBtn.innerHTML = originalText;
     }
   });
 
   // Handle model selection change
   modelSelect.addEventListener('change', async () => {
-    const selectedId = modelSelect.value;
-    if (selectedId) {
+    selectedModelId = modelSelect.value;
+    if (selectedModelId) {
+      testSpeedBtn.disabled = false;
+      testAllSpeedsBtn.disabled = false;
       await loadSpeedInfo();
     } else {
       testSpeedBtn.disabled = true;
-      speedInfo.style.display = 'none';
+      testAllSpeedsBtn.disabled = true;
+      speedInfo.classList.remove('visible');
     }
   });
 
   // Refresh models
   refreshModelsBtn.addEventListener('click', () => {
-    fetchAndPopulateModels(modelSelect.value);
+    fetchAndPopulateModels();
   });
+
+  // Collect custom prompts from editors
+  function collectCustomPrompts() {
+    const prompts = {};
+    const textareas = promptsContainer.querySelectorAll('.prompt-textarea');
+    
+    textareas.forEach(textarea => {
+      const type = textarea.dataset.type;
+      const value = textarea.value.trim();
+      
+      // Only save if it's different from default
+      if (value && value !== DEFAULT_PROMPTS[type]) {
+        prompts[type] = value;
+      }
+    });
+    
+    return prompts;
+  }
 
   // Save settings
   saveBtn.addEventListener('click', async () => {
     const apiKey = apiKeyInput.value.trim();
-    const selectedModel = modelSelect.value;
-    const userProfile = userProfileInput.value.trim();
+    const newCustomPrompts = collectCustomPrompts();
 
     // Validation
     if (!apiKey) {
-      saveMessage.textContent = 'Please enter your API key';
-      saveMessage.className = 'save-message error';
+      showToast('Please enter your API key', 'error');
+      apiKeyInput.focus();
       return;
     }
 
-    if (!selectedModel) {
-      saveMessage.textContent = 'Please select a model';
-      saveMessage.className = 'save-message error';
+    if (!selectedModelId) {
+      showToast('Please select a model', 'error');
       return;
     }
 
     saveBtn.disabled = true;
-    saveBtn.textContent = 'Saving...';
-    saveMessage.style.display = 'none';
+    const originalText = saveBtn.innerHTML;
+    saveBtn.innerHTML = `<div class="loading-spinner"></div> Saving...`;
 
     try {
       await chrome.storage.local.set({
         apiKey: apiKey,
-        selectedModel: selectedModel,
-        userProfile: userProfile
+        selectedModel: selectedModelId,
+        customPrompts: newCustomPrompts
       });
 
-      saveMessage.textContent = '✓ Settings saved!';
-      saveMessage.className = 'save-message success';
+      // Update local state
+      customPrompts = newCustomPrompts;
       
-      setTimeout(() => {
-        saveMessage.style.display = 'none';
-      }, 3000);
+      // Update badges
+      renderPromptEditors();
+
+      showToast('Settings saved successfully', 'success');
     } catch (error) {
       console.error('Failed to save:', error);
-      saveMessage.textContent = `✗ Error: ${error.message}`;
-      saveMessage.className = 'save-message error';
+      showToast(`Error: ${error.message}`, 'error');
     } finally {
       saveBtn.disabled = false;
-      saveBtn.textContent = '💾 Save Settings';
+      saveBtn.innerHTML = originalText;
     }
   });
 
   // Test speed button
   testSpeedBtn.addEventListener('click', async () => {
     const apiKey = apiKeyInput.value.trim();
-    const selectedModel = modelSelect.value;
     
     if (!apiKey) {
-      apiKeyValidation.textContent = 'Enter an API key first';
-      apiKeyValidation.className = 'validation-message error';
-      apiKeyValidation.style.display = 'block';
+      showToast('Enter an API key first', 'error');
       return;
     }
     
-    if (!selectedModel) {
-      saveMessage.textContent = 'Select a model first';
-      saveMessage.className = 'save-message error';
-      saveMessage.style.display = 'block';
+    if (!selectedModelId) {
+      showToast('Select a model first', 'error');
       return;
     }
     
     testSpeedBtn.disabled = true;
-    testSpeedBtn.textContent = 'Testing...';
+    const originalText = testSpeedBtn.innerHTML;
+    testSpeedBtn.innerHTML = `<div class="loading-spinner"></div> Testing...`;
     
     try {
       const result = await chrome.runtime.sendMessage({
         action: 'testApiKey',
         apiKey: apiKey,
-        modelId: selectedModel
+        modelId: selectedModelId
       });
       
       if (chrome.runtime.lastError) {
@@ -294,28 +529,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       
       if (result.valid) {
-        saveMessage.textContent = `⚡ Speed test: ${result.responseTime}ms`;
-        saveMessage.className = 'save-message success';
-        saveMessage.style.display = 'block';
-        
-        // Refresh speed info display
+        showToast(`Speed test: ${result.responseTime}ms`, 'success');
         await loadSpeedInfo();
-        
-        setTimeout(() => {
-          saveMessage.style.display = 'none';
-        }, 5000);
       } else {
-        saveMessage.textContent = `✗ Test failed: ${result.error}`;
-        saveMessage.className = 'save-message error';
-        saveMessage.style.display = 'block';
+        showToast(`Test failed: ${result.error}`, 'error');
       }
     } catch (error) {
-      saveMessage.textContent = `✗ Error: ${error.message}`;
-      saveMessage.className = 'save-message error';
-      saveMessage.style.display = 'block';
+      showToast(`Error: ${error.message}`, 'error');
     } finally {
       testSpeedBtn.disabled = false;
-      testSpeedBtn.textContent = '⚡ Test Current';
+      testSpeedBtn.innerHTML = originalText;
     }
   });
   
@@ -324,52 +547,40 @@ document.addEventListener('DOMContentLoaded', async () => {
     const apiKey = apiKeyInput.value.trim();
     
     if (!apiKey) {
-      apiKeyValidation.textContent = 'Enter an API key first';
-      apiKeyValidation.className = 'validation-message error';
-      apiKeyValidation.style.display = 'block';
+      showToast('Enter an API key first', 'error');
       return;
     }
     
-    // Get all available models
-    const result = await chrome.storage.local.get(['availableModels']);
-    const models = result.availableModels || [];
-    
-    if (models.length === 0) {
-      saveMessage.textContent = 'No models loaded. Click Refresh Models first.';
-      saveMessage.className = 'save-message error';
-      saveMessage.style.display = 'block';
+    if (availableModels.length === 0) {
+      showToast('No models loaded. Click Refresh Models first.', 'error');
       return;
     }
     
-    // Disable buttons during testing
     testSpeedBtn.disabled = true;
     testAllSpeedsBtn.disabled = true;
-    testAllSpeedsBtn.textContent = 'Testing...';
+    const originalText = testAllSpeedsBtn.textContent;
+    testAllSpeedsBtn.innerHTML = `<div class="loading-spinner"></div> Testing...`;
     
-    // Show progress
-    speedProgress.style.display = 'block';
-    allSpeeds.style.display = 'none';
-    speedInfo.style.display = 'none';
+    speedProgress.classList.add('visible');
+    allSpeeds.classList.remove('visible');
+    speedInfo.classList.remove('visible');
     
     const results = [];
-    const totalModels = models.length;
+    const totalModels = availableModels.length;
     
-    for (let i = 0; i < models.length; i++) {
-      const model = models[i];
+    for (let i = 0; i < availableModels.length; i++) {
+      const model = availableModels[i];
       
-      // Update progress
       progressCount.textContent = `${i + 1}/${totalModels}`;
       progressFill.style.width = `${((i + 1) / totalModels) * 100}%`;
       progressCurrent.textContent = `Testing: ${model.name}`;
       
       try {
-        const startTime = performance.now();
         const result = await chrome.runtime.sendMessage({
           action: 'testApiKey',
           apiKey: apiKey,
           modelId: model.id
         });
-        const endTime = performance.now();
         
         if (result.valid) {
           results.push({
@@ -395,225 +606,75 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
       }
       
-      // Small delay between tests to avoid rate limiting
-      if (i < models.length - 1) {
+      if (i < availableModels.length - 1) {
         await new Promise(resolve => setTimeout(resolve, CONFIG.TIMEOUTS.SPEED_TEST_DELAY));
       }
     }
     
-    // Hide progress
-    speedProgress.style.display = 'none';
+    speedProgress.classList.remove('visible');
     
-    // Sort by response time (fastest first)
     const sortedResults = results
       .filter(r => r.success)
       .sort((a, b) => a.responseTime - b.responseTime);
     
-    // Display all results
     allSpeedsList.innerHTML = '';
     sortedResults.forEach((result, index) => {
       const item = document.createElement('div');
-      item.className = 'all-speeds-item';
+      item.className = 'model-result-item';
       if (index === 0) item.classList.add('fastest');
       
-      const rank = document.createElement('span');
-      rank.className = 'speed-rank';
-      rank.textContent = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`;
+      item.innerHTML = `
+        <span class="model-result-rank">${index + 1}</span>
+        <span class="model-result-name">${result.name}</span>
+        <span class="model-result-time">${result.responseTime}ms</span>
+      `;
       
-      const name = document.createElement('span');
-      name.className = 'speed-name';
-      name.textContent = result.name;
-      
-      const time = document.createElement('span');
-      time.className = 'speed-time';
-      time.textContent = `${result.responseTime}ms`;
-      
-      item.appendChild(rank);
-      item.appendChild(name);
-      item.appendChild(time);
       allSpeedsList.appendChild(item);
     });
     
-    // Show failed tests
     const failedResults = results.filter(r => !r.success);
     if (failedResults.length > 0) {
       const failedHeader = document.createElement('div');
-      failedHeader.className = 'all-speeds-failed-header';
+      failedHeader.className = 'all-models-header';
+      failedHeader.style.background = 'var(--error-subtle)';
+      failedHeader.style.color = 'var(--error)';
       failedHeader.textContent = `Failed (${failedResults.length})`;
       allSpeedsList.appendChild(failedHeader);
       
       failedResults.forEach(result => {
         const item = document.createElement('div');
-        item.className = 'all-speeds-item failed';
+        item.className = 'model-result-item';
         
-        const name = document.createElement('span');
-        name.className = 'speed-name';
-        name.textContent = result.name;
+        item.innerHTML = `
+          <span class="model-result-rank">-</span>
+          <span class="model-result-name">${result.name}</span>
+          <span class="model-result-error">Failed</span>
+        `;
         
-        const error = document.createElement('span');
-        error.className = 'speed-error';
-        error.textContent = 'Failed';
-        
-        item.appendChild(name);
-        item.appendChild(error);
         allSpeedsList.appendChild(item);
       });
     }
     
-    allSpeeds.style.display = 'block';
+    allSpeeds.classList.add('visible');
     
-    // Show completion message
     if (sortedResults.length > 0) {
-      saveMessage.textContent = `✓ Tested ${sortedResults.length} models. Fastest: ${sortedResults[0].name} (${sortedResults[0].responseTime}ms)`;
-      saveMessage.className = 'save-message success';
-      saveMessage.style.display = 'block';
-      
-      // Refresh speed info for current model
+      showToast(`Fastest: ${sortedResults[0].name} (${sortedResults[0].responseTime}ms)`, 'success');
       await loadSpeedInfo();
     } else {
-      saveMessage.textContent = '✗ All tests failed';
-      saveMessage.className = 'save-message error';
-      saveMessage.style.display = 'block';
+      showToast('All tests failed', 'error');
     }
     
-    // Re-enable buttons
     testSpeedBtn.disabled = false;
     testAllSpeedsBtn.disabled = false;
-    testAllSpeedsBtn.textContent = '⚡ Test All Models';
-    
-      setTimeout(() => {
-        saveMessage.style.display = 'none';
-      }, CONFIG.TIMEOUTS.SAVE_MESSAGE);
-    } catch (error) {
-      console.error('Failed to fetch models:', error);
-      modelSelect.innerHTML = '<option>Error loading</option>';
-      
-      saveMessage.textContent = `Error: ${error.message}`;
-      saveMessage.className = 'save-message error';
-    } finally {
-      refreshModelsBtn.disabled = false;
-    }
-  }
-
-  // Toggle API key visibility
-  toggleApiKeyBtn.addEventListener('click', () => {
-    const type = apiKeyInput.type === 'password' ? 'text' : 'password';
-    apiKeyInput.type = type;
-    toggleApiKeyBtn.textContent = type === 'password' ? '👁️' : '🙈';
-  });
-
-  // Test API key
-  testApiKeyBtn.addEventListener('click', async () => {
-    const apiKey = apiKeyInput.value.trim();
-    
-    if (!apiKey) {
-      apiKeyValidation.textContent = 'Enter an API key';
-      apiKeyValidation.className = 'validation-message error';
-      return;
-    }
-
-    testApiKeyBtn.disabled = true;
-    testApiKeyBtn.textContent = 'Testing...';
-    apiKeyValidation.style.display = 'none';
-
-    try {
-      const result = await chrome.runtime.sendMessage({
-        action: 'testApiKey',
-        apiKey: apiKey
-      });
-
-      if (chrome.runtime.lastError) {
-        throw new Error(chrome.runtime.lastError.message);
-      }
-
-      if (result.valid) {
-        apiKeyValidation.textContent = '✓ API key is valid!';
-        apiKeyValidation.className = 'validation-message success';
-      } else {
-        apiKeyValidation.textContent = `✗ ${result.error || 'Invalid API key'}`;
-        apiKeyValidation.className = 'validation-message error';
-      }
-    } catch (error) {
-      apiKeyValidation.textContent = `✗ Error: ${error.message}`;
-      apiKeyValidation.className = 'validation-message error';
-    } finally {
-      testApiKeyBtn.disabled = false;
-      testApiKeyBtn.textContent = 'Test Connection';
-    }
-  });
-
-  // Handle model selection change
-  modelSelect.addEventListener('change', async () => {
-    const selectedId = modelSelect.value;
-    if (selectedId) {
-      await loadSpeedInfo();
-    } else {
-      testSpeedBtn.disabled = true;
-      testAllSpeedsBtn.disabled = true;
-      speedInfo.style.display = 'none';
-    }
-  });
-
-  // Refresh models
-  refreshModelsBtn.addEventListener('click', () => {
-    fetchAndPopulateModels(modelSelect.value);
-  });
-
-  // Save settings
-  saveBtn.addEventListener('click', async () => {
-    const apiKey = apiKeyInput.value.trim();
-    const selectedModel = modelSelect.value;
-    const userProfile = userProfileInput.value.trim();
-
-    // Validation
-    if (!apiKey) {
-      saveMessage.textContent = 'Please enter your API key';
-      saveMessage.className = 'save-message error';
-      return;
-    }
-
-    if (!selectedModel) {
-      saveMessage.textContent = 'Please select a model';
-      saveMessage.className = 'save-message error';
-      return;
-    }
-
-    saveBtn.disabled = true;
-    saveBtn.textContent = 'Saving...';
-    saveMessage.style.display = 'none';
-
-    try {
-      await chrome.storage.local.set({
-        apiKey: apiKey,
-        selectedModel: selectedModel,
-        userProfile: userProfile
-      });
-
-      saveMessage.textContent = '✓ Settings saved!';
-      saveMessage.className = 'save-message success';
-      
-      setTimeout(() => {
-        saveMessage.style.display = 'none';
-      }, CONFIG.TIMEOUTS.SAVE_MESSAGE);
-    } catch (error) {
-      console.error('Failed to save:', error);
-      saveMessage.textContent = `✗ Error: ${error.message}`;
-      saveMessage.className = 'save-message error';
-    } finally {
-      saveBtn.disabled = false;
-      saveBtn.textContent = '💾 Save Settings';
-    }
+    testAllSpeedsBtn.textContent = originalText;
   });
   
   // Load and display speed info
   async function loadSpeedInfo() {
-    const selectedModel = modelSelect.value;
-    const apiKey = apiKeyInput.value.trim();
-    
-    if (!selectedModel || !apiKey) {
+    if (!selectedModelId) {
       testSpeedBtn.disabled = true;
       testAllSpeedsBtn.disabled = true;
-      speedInfo.style.display = 'none';
+      speedInfo.classList.remove('visible');
       return;
     }
     
@@ -621,41 +682,35 @@ document.addEventListener('DOMContentLoaded', async () => {
     testAllSpeedsBtn.disabled = false;
     
     try {
-      // Get stored response times
       const result = await chrome.storage.local.get(['modelResponseTimes']);
       const times = result.modelResponseTimes || {};
       
-      // Get fastest model
       const fastestResult = await chrome.runtime.sendMessage({ action: 'getFastestModel' });
       
-      // Show speed info
-      speedInfo.style.display = 'block';
-      
-      // Display current model time
-      if (times[selectedModel]) {
-        currentModelTime.textContent = `${times[selectedModel].average}ms avg (${times[selectedModel].times.length} tests)`;
-        currentModelTime.className = 'speed-value tested';
+      if (times[selectedModelId]) {
+        currentModelTime.textContent = `${times[selectedModelId].average}ms avg`;
+        currentModelTime.classList.add('fast');
       } else {
-        currentModelTime.textContent = 'Not tested yet';
-        currentModelTime.className = 'speed-value';
+        currentModelTime.textContent = 'Not tested';
+        currentModelTime.classList.remove('fast');
       }
       
-      // Display fastest model
       if (fastestResult) {
         const modelName = fastestResult.modelId.split('/').pop();
-        fastestModelTime.innerHTML = `${modelName} <span class="speed-highlight">${fastestResult.averageTime}ms</span>`;
-        fastestModelTime.className = 'speed-value fastest';
+        fastestModelTime.textContent = `${modelName} (${fastestResult.averageTime}ms)`;
+        fastestModelTime.classList.add('fast');
       } else {
         fastestModelTime.textContent = 'Run speed test';
-        fastestModelTime.className = 'speed-value';
+        fastestModelTime.classList.remove('fast');
       }
+      
+      speedInfo.classList.add('visible');
     } catch (error) {
       console.error('Failed to load speed info:', error);
-      speedInfo.style.display = 'none';
+      speedInfo.classList.remove('visible');
     }
   }
 
   // Initial load
   loadSettings();
-  loadSpeedInfo();
 });
