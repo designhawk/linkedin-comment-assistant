@@ -28,6 +28,9 @@
   let currentPostData = null;
   let currentCommentBox = null;
   let suggestionPanel = null;
+  let currentMode = 'post'; // 'post' or 'message'
+  let currentConversationData = null;
+  let currentMessageInput = null;
 
   // Track event listeners for cleanup
   const activeListeners = new Map();
@@ -83,6 +86,40 @@
       icon: '😅', 
       label: 'Real Talk', 
       description: 'Genuine reaction with personality'
+    }
+  };
+
+  // Message reply types - 6 tones for messaging
+  const MESSAGE_TYPES = {
+    professional_networking: {
+      icon: '💼',
+      label: 'Professional',
+      description: 'Polished, industry-appropriate response'
+    },
+    casual_friendly: {
+      icon: '👋',
+      label: 'Casual',
+      description: 'Friendly and approachable tone'
+    },
+    follow_up: {
+      icon: '📌',
+      label: 'Follow Up',
+      description: 'Keep the conversation moving forward'
+    },
+    cold_outreach: {
+      icon: '🎯',
+      label: 'Outreach',
+      description: 'Warm but professional cold approach'
+    },
+    collaborative: {
+      icon: '🤝',
+      label: 'Collaborate',
+      description: 'Open to working together'
+    },
+    gratitude: {
+      icon: '🙏',
+      label: 'Gratitude',
+      description: 'Thankful and appreciative response'
     }
   };
 
@@ -157,15 +194,52 @@
     }
   }
 
-  // Watch for comment boxes appearing
+  // Detect if we're in messaging mode
+  function detectMode() {
+    const isMessaging = window.location.href.includes('/messaging/') ||
+                       document.querySelector('.msg-s-message-list-content') !== null ||
+                       document.querySelector('.msg-form__contenteditable') !== null;
+    
+    const newMode = isMessaging ? 'message' : 'post';
+    if (newMode !== currentMode) {
+      currentMode = newMode;
+      console.log(`[LinkedIn Comment Assistant] Mode switched to: ${currentMode}`);
+    }
+    return currentMode;
+  }
+
+  // Watch for comment boxes and message inputs appearing
   function observeCommentBoxes() {
     console.log('[LinkedIn Comment Assistant] Starting to observe for comment boxes...');
+    
+    // Initial mode detection
+    detectMode();
+    
+    // Inject mode badge if in message mode
+    if (currentMode === 'message') {
+      injectModeBadgeIntoHeader();
+    }
     
     const observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
         mutation.addedNodes.forEach((node) => {
           if (node.nodeType === Node.ELEMENT_NODE) {
-            findAndEnhanceCommentBoxes(node);
+            // Check mode on DOM changes
+            const previousMode = currentMode;
+            detectMode();
+            
+            // Handle mode badge
+            if (currentMode === 'message' && previousMode !== 'message') {
+              injectModeBadgeIntoHeader();
+            } else if (currentMode === 'post' && previousMode === 'message') {
+              removeModeBadgeFromHeader();
+            }
+            
+            if (currentMode === 'post') {
+              findAndEnhanceCommentBoxes(node);
+            } else {
+              findAndEnhanceMessageInputs(node);
+            }
           }
         });
       });
@@ -176,8 +250,52 @@
       subtree: true
     });
 
-    // Also check existing comment boxes
-    findAndEnhanceCommentBoxes(document.body);
+    // Also check existing inputs
+    if (currentMode === 'post') {
+      findAndEnhanceCommentBoxes(document.body);
+    } else {
+      findAndEnhanceMessageInputs(document.body);
+    }
+  }
+
+  // Inject mode badge into messaging header
+  function injectModeBadgeIntoHeader() {
+    // Check if badge already exists
+    if (document.querySelector('.comment-assistant-mode-badge')) return;
+    
+    // Find the header container
+    const headerContainer = document.querySelector('[data-test-msg-cross-pillar-inbox-top-bar-title]')?.parentElement;
+    if (!headerContainer) return;
+    
+    // Create mode badge
+    const modeBadge = document.createElement('div');
+    modeBadge.className = 'comment-assistant-mode-badge';
+    modeBadge.innerHTML = '💬 Message Mode';
+    modeBadge.style.cssText = `
+      background: linear-gradient(135deg, #7c3aed, #a855f7);
+      color: white;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 12px;
+      margin-left: 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+    `;
+    
+    headerContainer.appendChild(modeBadge);
+    console.log('[LinkedIn Comment Assistant] Mode badge injected into header');
+  }
+
+  // Remove mode badge from header
+  function removeModeBadgeFromHeader() {
+    const badge = document.querySelector('.comment-assistant-mode-badge');
+    if (badge) {
+      badge.remove();
+      console.log('[LinkedIn Comment Assistant] Mode badge removed from header');
+    }
   }
 
   // Find comment input boxes and add suggest button
@@ -196,6 +314,84 @@
         enhanceCommentBox(commentBox);
       }
     });
+  }
+
+  // Find message input boxes and add suggest button
+  function findAndEnhanceMessageInputs(container) {
+    // LinkedIn messaging uses contenteditable divs in forms
+    const messageInputs = container.querySelectorAll('.msg-form__contenteditable[contenteditable="true"]');
+    
+    if (messageInputs.length > 0) {
+      console.log(`[LinkedIn Comment Assistant] Found ${messageInputs.length} message input(s)`);
+    }
+    
+    messageInputs.forEach((messageInput, index) => {
+      if (!messageInput.dataset.commentAssistantEnhanced) {
+        console.log(`[LinkedIn Comment Assistant] Enhancing message input #${index + 1}`);
+        enhanceMessageInput(messageInput);
+      }
+    });
+  }
+
+  // Enhance a message input with suggest button
+  function enhanceMessageInput(messageInput) {
+    messageInput.dataset.commentAssistantEnhanced = 'true';
+    
+    // Find the message form container - use actual LinkedIn selectors from HTML
+    let formContainer = messageInput.closest('.msg-form') ||
+                       messageInput.closest('.msg-form--thread-footer-feature') ||
+                       messageInput.closest('.msg-compose-form') ||
+                       messageInput.parentElement;
+    
+    if (!formContainer) return;
+
+    // Check if button already exists
+    const existingBtn = formContainer.querySelector('.comment-assistant-btn') ||
+                       messageInput.parentElement?.querySelector('.comment-assistant-btn');
+    if (existingBtn) return;
+
+    // Create suggest button
+    const suggestBtn = document.createElement('button');
+    suggestBtn.className = 'comment-assistant-btn';
+    suggestBtn.innerHTML = '💡 Suggest Reply';
+    suggestBtn.title = 'Get AI message suggestions';
+    suggestBtn.style.cssText = `
+      background: #7c3aed;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 16px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      margin: 8px 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: background-color 0.2s;
+      width: fit-content;
+    `;
+
+    addTrackedListener(suggestBtn, 'mouseenter', () => {
+      suggestBtn.style.backgroundColor = '#6d28d9';
+    });
+
+    addTrackedListener(suggestBtn, 'mouseleave', () => {
+      suggestBtn.style.backgroundColor = '#7c3aed';
+    });
+
+    addTrackedListener(suggestBtn, 'click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      handleMessageSuggestClick(messageInput, formContainer);
+    });
+
+    // Insert button at the beginning of the container
+    if (formContainer.firstChild) {
+      formContainer.insertBefore(suggestBtn, formContainer.firstChild);
+    } else {
+      formContainer.appendChild(suggestBtn);
+    }
   }
 
   // Enhance a comment box with suggest button
@@ -299,6 +495,112 @@
       console.error('[LinkedIn Comment Assistant] Error:', error);
       showError(formContainer, 'Failed to analyze post. Please try again.');
     }
+  }
+
+  // Handle message suggest button click
+  async function handleMessageSuggestClick(messageInput, formContainer) {
+    currentMessageInput = messageInput;
+    
+    // Remove existing panel
+    cleanupSuggestionPanel();
+
+    // Show loading
+    showLoading(formContainer);
+
+    try {
+      // Scrape conversation data
+      const conversationData = scrapeConversationData();
+      currentConversationData = conversationData;
+
+      // Show message type selector
+      showMessageTypeSelector(formContainer);
+    } catch (error) {
+      console.error('[LinkedIn Comment Assistant] Error:', error);
+      showError(formContainer, 'Failed to analyze conversation. Please try again.');
+    }
+  }
+
+  // Scrape conversation data from LinkedIn messaging
+  function scrapeConversationData() {
+    console.log('[LinkedIn Comment Assistant] Scraping conversation data...');
+    
+    const conversationData = {
+      messages: [],
+      recipient: null,
+      sharedPost: null
+    };
+
+    // Get conversation container
+    const messageList = document.querySelector('.msg-s-message-list-content') ||
+                       document.querySelector('.msg-s-message-group__messages');
+    
+    if (!messageList) {
+      console.warn('[LinkedIn Comment Assistant] Could not find message list container');
+      return conversationData;
+    }
+
+    // Get all message event items (limited to last 20)
+    const messageItems = messageList.querySelectorAll('.msg-s-event-listitem');
+    const recentItems = Array.from(messageItems).slice(-20);
+
+    console.log(`[LinkedIn Comment Assistant] Found ${messageItems.length} messages, using last ${recentItems.length}`);
+
+    recentItems.forEach((item, index) => {
+      // Check if this is from the current user (sent) or other (received)
+      const isSent = item.classList.contains('msg-s-event-listitem--other') === false;
+      
+      // Get message text
+      const bodyElement = item.querySelector('.msg-s-event-listitem__body');
+      const messageText = bodyElement ? bodyElement.textContent.trim() : '';
+      
+      // Get sender info
+      const senderElement = item.closest('.msg-s-message-group')?.querySelector('.msg-s-message-group__name');
+      const senderName = senderElement ? senderElement.textContent.trim() : (isSent ? 'You' : 'Them');
+      
+      // Get timestamp
+      const timeElement = item.querySelector('.msg-s-message-group__timestamp');
+      const timestamp = timeElement ? timeElement.textContent.trim() : '';
+
+      if (messageText) {
+        conversationData.messages.push({
+          text: messageText,
+          sender: senderName,
+          isSent: isSent,
+          timestamp: timestamp,
+          index: index
+        });
+      }
+    });
+
+    // Get recipient info from the conversation header
+    const headerElement = document.querySelector('.msg-conversation-card__title') ||
+                         document.querySelector('.msg-thread__link-to-profile');
+    if (headerElement) {
+      conversationData.recipient = headerElement.textContent.trim();
+    }
+
+    // Check for shared post content
+    const sharedPostContainer = document.querySelector('.update-components-mini-update-v2__reshared-content') ||
+                               document.querySelector('.msg-s-event-listitem__external-shared-content');
+    
+    if (sharedPostContainer) {
+      const postText = sharedPostContainer.textContent.trim();
+      const postAuthor = sharedPostContainer.querySelector('.update-components-actor__name')?.textContent?.trim();
+      
+      conversationData.sharedPost = {
+        text: postText,
+        author: postAuthor
+      };
+      console.log('[LinkedIn Comment Assistant] Found shared post in conversation');
+    }
+
+    console.log('[LinkedIn Comment Assistant] Conversation data scraped:', {
+      messageCount: conversationData.messages.length,
+      recipient: conversationData.recipient,
+      hasSharedPost: !!conversationData.sharedPost
+    });
+
+    return conversationData;
   }
 
   // Show loading indicator
@@ -705,6 +1007,135 @@
     container.appendChild(suggestionPanel);
   }
 
+  // Show message type selector UI
+  function showMessageTypeSelector(container) {
+    // Remove loading
+    const loading = container.querySelector('.comment-assistant-loading');
+    if (loading) loading.remove();
+
+    // Remove existing panel
+    cleanupSuggestionPanel();
+
+    suggestionPanel = document.createElement('div');
+    suggestionPanel.className = 'comment-assistant-panel';
+    suggestionPanel.style.cssText = `
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 16px;
+      margin: 8px 0;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      max-width: 100%;
+    `;
+
+    const title = document.createElement('div');
+    title.innerHTML = '💬 Select message tone:';
+    title.style.cssText = `
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #333;
+    `;
+    suggestionPanel.appendChild(title);
+
+    const typesContainer = document.createElement('div');
+    typesContainer.style.cssText = `
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    `;
+
+    // Show all message types
+    Object.keys(MESSAGE_TYPES).forEach(type => {
+      const typeData = MESSAGE_TYPES[type];
+      if (typeData) {
+        const btn = createMessageTypeButton(type, typeData);
+        typesContainer.appendChild(btn);
+      }
+    });
+
+    // Close button
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '✕ Close';
+    closeBtn.style.cssText = `
+      background: none;
+      border: none;
+      color: #666;
+      cursor: pointer;
+      padding: 8px;
+      font-size: 14px;
+      margin-top: 8px;
+      text-align: right;
+      width: 100%;
+    `;
+    addTrackedListener(closeBtn, 'click', () => {
+      cleanupSuggestionPanel();
+    });
+
+    suggestionPanel.appendChild(typesContainer);
+    suggestionPanel.appendChild(closeBtn);
+    container.appendChild(suggestionPanel);
+  }
+
+  // Create a message type selection button
+  function createMessageTypeButton(type, typeData) {
+    const btn = document.createElement('button');
+    btn.className = 'comment-type-btn';
+    btn.style.cssText = `
+      background: #faf5ff;
+      border: 1px solid #d8b4fe;
+      border-radius: 8px;
+      padding: 12px;
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    `;
+
+    const icon = document.createElement('span');
+    icon.textContent = typeData.icon;
+    icon.style.fontSize = '20px';
+
+    const content = document.createElement('div');
+    content.style.flex = '1';
+
+    const label = document.createElement('div');
+    label.textContent = typeData.label;
+    label.style.cssText = `
+      font-weight: 600;
+      color: #333;
+      font-size: 14px;
+    `;
+
+    const desc = document.createElement('div');
+    desc.textContent = typeData.description;
+    desc.style.cssText = `
+      font-size: 12px;
+      color: #666;
+      margin-top: 2px;
+    `;
+
+    content.appendChild(label);
+    content.appendChild(desc);
+    btn.appendChild(icon);
+    btn.appendChild(content);
+
+    addTrackedListener(btn, 'mouseenter', () => {
+      btn.style.backgroundColor = '#f3e8ff';
+    });
+
+    addTrackedListener(btn, 'mouseleave', () => {
+      btn.style.backgroundColor = '#faf5ff';
+    });
+
+    addTrackedListener(btn, 'click', () => {
+      generateMessageReplies(type);
+    });
+
+    return btn;
+  }
+
   // Create a type selection button
   function createTypeButton(type, typeData, isRecommended) {
     const btn = document.createElement('button');
@@ -902,6 +1333,116 @@
     // All retries failed or context error
     handleGenerationError(lastError);
   }
+
+  // Generate message replies for selected type
+  async function generateMessageReplies(messageType) {
+    console.log(`[LinkedIn Comment Assistant] Generating message replies for type: ${messageType}`);
+    
+    if (!suggestionPanel || !currentConversationData) {
+      console.warn('[LinkedIn Comment Assistant] Missing suggestionPanel or currentConversationData');
+      return;
+    }
+
+    // Show loading in panel
+    suggestionPanel.innerHTML = `
+      <div style="padding: 20px; text-align: center; color: #666;">
+        <div style="font-size: 24px; margin-bottom: 8px;">💬</div>
+        <div>Generating ${MESSAGE_TYPES[messageType].label.toLowerCase()} reply...</div>
+      </div>
+    `;
+
+    // Retry logic
+    const maxRetries = 2;
+    let lastError = null;
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      if (attempt > 0) {
+        console.log(`[LinkedIn Comment Assistant] Retry attempt ${attempt}/${maxRetries}...`);
+      }
+      
+      try {
+        // Check if chrome.runtime is available
+        if (typeof chrome === 'undefined') {
+          throw new Error('Chrome API not available');
+        }
+        
+        if (!chrome.runtime) {
+          throw new Error('Extension context invalidated');
+        }
+        
+        if (!chrome.runtime.sendMessage) {
+          throw new Error('Message API not available');
+        }
+
+        let response;
+        try {
+          // Send message to background script with timeout
+          response = await Promise.race([
+            chrome.runtime.sendMessage({
+              action: 'generateMessageReplies',
+              data: {
+                conversationData: currentConversationData,
+                messageType: messageType
+              }
+            }),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Request timeout')), CONFIG.TIMEOUTS.REQUEST)
+            )
+          ]);
+          
+          // Check for runtime errors
+          if (chrome.runtime.lastError) {
+            throw new Error(chrome.runtime.lastError.message);
+          }
+        } catch (sendError) {
+          console.error('[LinkedIn Comment Assistant] Error sending message:', sendError);
+          if (sendError.message && sendError.message.includes('Could not establish connection')) {
+            throw new Error('Connection failed');
+          }
+          throw sendError;
+        }
+
+        if (!response) {
+          throw new Error('No response from background script');
+        }
+
+        if (response.error) {
+          throw new Error(response.error);
+        }
+
+        // Validate response format
+        if (!response.replies || !Array.isArray(response.replies)) {
+          throw new Error('Invalid response format: replies array missing');
+        }
+
+        if (response.replies.length === 0) {
+          throw new Error('No replies generated');
+        }
+
+        // Success!
+        displayGeneratedMessageReplies(response.replies, messageType, response.usedFallback, response.model);
+        return;
+        
+      } catch (error) {
+        lastError = error;
+        console.error(`[LinkedIn Comment Assistant] Attempt ${attempt + 1} failed:`, error);
+        
+        if (error.message && (
+          error.message.includes('context invalidated') ||
+          error.message.includes('Chrome API not available') ||
+          error.message.includes('Extension context')
+        )) {
+          break;
+        }
+        
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, CONFIG.TIMEOUTS.RETRY_DELAY * (attempt + 1)));
+        }
+      }
+    }
+    
+    handleGenerationError(lastError);
+  }
   
   // Handle generation errors with specific messages
   function handleGenerationError(error) {
@@ -1032,6 +1573,284 @@
     suggestionPanel.appendChild(regenerateBtn);
     suggestionPanel.appendChild(backBtn);
     suggestionPanel.appendChild(closeBtn);
+  }
+
+  // Display generated message replies
+  function displayGeneratedMessageReplies(replies, messageType, usedFallback = false, modelName = null) {
+    if (!suggestionPanel) return;
+
+    suggestionPanel.innerHTML = '';
+
+    const title = document.createElement('div');
+    title.innerHTML = `${MESSAGE_TYPES[messageType].icon} ${MESSAGE_TYPES[messageType].label} Replies`;
+    title.style.cssText = `
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #333;
+      font-size: 16px;
+    `;
+    suggestionPanel.appendChild(title);
+
+    // Show fallback notification if used
+    if (usedFallback && modelName) {
+      const fallbackNotice = document.createElement('div');
+      fallbackNotice.innerHTML = `⚠️ Primary model failed. Used fallback: ${modelName.split('/').pop()}`;
+      fallbackNotice.style.cssText = `
+        font-size: 11px;
+        color: #f57c00;
+        margin-bottom: 8px;
+        padding: 6px 10px;
+        background: #fff8e1;
+        border: 1px solid #ffc107;
+        border-radius: 6px;
+      `;
+      suggestionPanel.appendChild(fallbackNotice);
+    }
+
+    const repliesContainer = document.createElement('div');
+    repliesContainer.style.cssText = `
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    `;
+
+    replies.forEach((reply, index) => {
+      const replyCard = createMessageReplyCard(reply, index);
+      repliesContainer.appendChild(replyCard);
+    });
+
+    // Regenerate button
+    const regenerateBtn = document.createElement('button');
+    regenerateBtn.innerHTML = '🔄 Generate More';
+    regenerateBtn.style.cssText = `
+      background: #f3f2ef;
+      border: 1px solid #ddd;
+      border-radius: 16px;
+      padding: 8px 16px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-top: 12px;
+      color: #333;
+    `;
+    addTrackedListener(regenerateBtn, 'click', () => generateMessageReplies(messageType));
+
+    // Back button
+    const backBtn = document.createElement('button');
+    backBtn.textContent = '← Back to types';
+    backBtn.style.cssText = `
+      background: none;
+      border: none;
+      color: #7c3aed;
+      cursor: pointer;
+      padding: 8px;
+      font-size: 14px;
+      margin-top: 8px;
+    `;
+    addTrackedListener(backBtn, 'click', () => {
+      showMessageTypeSelector(suggestionPanel.parentElement);
+    });
+
+    // Close button
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '✕ Close';
+    closeBtn.style.cssText = `
+      background: none;
+      border: none;
+      color: #666;
+      cursor: pointer;
+      padding: 8px;
+      font-size: 14px;
+      margin-top: 8px;
+    `;
+    addTrackedListener(closeBtn, 'click', () => {
+      cleanupSuggestionPanel();
+    });
+
+    suggestionPanel.appendChild(repliesContainer);
+    suggestionPanel.appendChild(regenerateBtn);
+    suggestionPanel.appendChild(backBtn);
+    suggestionPanel.appendChild(closeBtn);
+  }
+
+  // Create a message reply card
+  function createMessageReplyCard(reply, index) {
+    const card = document.createElement('div');
+    card.style.cssText = `
+      background: #faf5ff;
+      border: 1px solid #d8b4fe;
+      border-radius: 8px;
+      padding: 12px;
+      position: relative;
+    `;
+
+    const text = document.createElement('div');
+    text.textContent = reply.text;
+    text.style.cssText = `
+      font-size: 14px;
+      line-height: 1.5;
+      color: #333;
+      margin-bottom: 10px;
+      white-space: pre-wrap;
+    `;
+
+    const actions = document.createElement('div');
+    actions.style.cssText = `
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    `;
+
+    const useBtn = document.createElement('button');
+    useBtn.textContent = 'Use This';
+    useBtn.style.cssText = `
+      background: #7c3aed;
+      color: white;
+      border: none;
+      border-radius: 16px;
+      padding: 6px 14px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+    `;
+    addTrackedListener(useBtn, 'click', () => insertMessageReply(reply.text));
+
+    const copyBtn = document.createElement('button');
+    copyBtn.textContent = '📋 Copy';
+    copyBtn.style.cssText = `
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 16px;
+      padding: 6px 14px;
+      cursor: pointer;
+      font-size: 13px;
+      color: #666;
+    `;
+    addTrackedListener(copyBtn, 'click', () => {
+      navigator.clipboard.writeText(reply.text);
+      copyBtn.textContent = '✓ Copied!';
+      setTimeout(() => {
+        copyBtn.textContent = '📋 Copy';
+      }, 2000);
+    });
+
+    actions.appendChild(useBtn);
+    actions.appendChild(copyBtn);
+    card.appendChild(text);
+    card.appendChild(actions);
+
+    return card;
+  }
+
+  // Insert message reply into LinkedIn message input
+  function insertMessageReply(text) {
+    console.log('[LinkedIn Comment Assistant] Inserting message reply:', text.substring(0, 50) + '...');
+    
+    if (!currentMessageInput) {
+      console.error('[LinkedIn Comment Assistant] No currentMessageInput available');
+      return;
+    }
+
+    // LinkedIn message inputs use contenteditable divs
+    if (currentMessageInput.getAttribute('contenteditable') === 'true') {
+      console.log('[LinkedIn Comment Assistant] Using contenteditable method for message');
+      
+      // Focus first to ensure the input is active
+      currentMessageInput.focus();
+      
+      // Use execCommand for better React compatibility
+      currentMessageInput.innerHTML = '';
+      
+      // Create a single paragraph with the text
+      const p = document.createElement('p');
+      if (text.includes('\n')) {
+        // Handle multiline text
+        const lines = text.split('\n');
+        lines.forEach((line, index) => {
+          if (index > 0) {
+            p.appendChild(document.createElement('br'));
+          }
+          if (line) {
+            p.appendChild(document.createTextNode(line));
+          }
+        });
+      } else {
+        p.textContent = text;
+      }
+      currentMessageInput.appendChild(p);
+      
+      // Trigger comprehensive events for LinkedIn's React components
+      const triggerInputEvent = (element, eventType, options = {}) => {
+        const event = new InputEvent(eventType, {
+          bubbles: true,
+          cancelable: true,
+          inputType: 'insertText',
+          data: text,
+          ...options
+        });
+        element.dispatchEvent(event);
+      };
+      
+      // Trigger on the input itself
+      ['focus', 'beforeinput', 'input', 'keyup', 'keydown', 'change'].forEach(eventType => {
+        if (eventType === 'beforeinput' || eventType === 'input') {
+          triggerInputEvent(currentMessageInput, eventType);
+        } else {
+          const event = new Event(eventType, { bubbles: true, cancelable: true });
+          currentMessageInput.dispatchEvent(event);
+        }
+      });
+      
+      // Trigger on parent containers
+      const scrollableContainer = currentMessageInput.closest('.msg-form__msg-content-container--scrollable');
+      if (scrollableContainer) {
+        triggerInputEvent(scrollableContainer, 'input');
+      }
+      
+      const parentContainer = currentMessageInput.closest('.msg-form__msg-content-container');
+      if (parentContainer) {
+        ['input', 'change'].forEach(eventType => {
+          triggerInputEvent(parentContainer, eventType);
+        });
+      }
+      
+      // Trigger on the form
+      const form = currentMessageInput.closest('form');
+      if (form) {
+        ['input', 'change'].forEach(eventType => {
+          triggerInputEvent(form, eventType);
+        });
+        
+        // Also try to find and trigger the submit button's state
+        const sendButton = form.querySelector('.msg-form__send-button, [type="submit"]');
+        if (sendButton) {
+          sendButton.disabled = false;
+        }
+      }
+      
+      // Trigger a window-level event (some frameworks listen here)
+      window.dispatchEvent(new Event('input', { bubbles: true }));
+      document.dispatchEvent(new Event('input', { bubbles: true }));
+      
+    } else {
+      console.warn('[LinkedIn Comment Assistant] Unknown message input type, trying textContent');
+      currentMessageInput.textContent = text;
+    }
+
+    // Place cursor at the end of the text
+    setTimeout(() => {
+      currentMessageInput.focus();
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(currentMessageInput);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      
+      console.log('[LinkedIn Comment Assistant] Message reply inserted successfully');
+    }, 100);
+
+    // Close suggestion panel
+    cleanupSuggestionPanel();
   }
 
   // Create a comment card

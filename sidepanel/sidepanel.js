@@ -106,10 +106,102 @@ const COMMENT_TYPE_LABELS = {
   authentic_reaction: 'Authentic Reaction'
 };
 
+// Default message prompts - these match the background.js defaults
+const DEFAULT_MESSAGE_PROMPTS = {
+  professional_networking: `WRITE LIKE: Quick professional note between colleagues
+STYLE: Polished but brief, gets to the point fast.
+GOOD EXAMPLES:
+- "Thanks for sharing this. Would love to connect and hear more about your work in AI."
+- "This aligns with what we're building. Mind if I reach out about potential collaboration?"
+BAD EXAMPLES:
+- "I hope this message finds you well..."
+- "I wanted to take a moment to introduce myself..."
+RULES:
+- 1-2 sentences max
+- Skip formal greetings and closings
+- Be direct about next steps or interest`,
+
+  casual_friendly: `WRITE LIKE: Slack message to a coworker you like
+STYLE: Relaxed, conversational, uses casual language.
+GOOD EXAMPLES:
+- "Haha same! This is exactly what I needed today"
+- "Love this perspective. How long have you been working on this?"
+BAD EXAMPLES:
+- "I completely agree with your assessment..."
+- "Thank you for your thoughtful message..."
+RULES:
+- Use contractions: I'm, don't, can't
+- Short sentences are fine
+- Show personality`,
+
+  follow_up: `WRITE LIKE: Keeping the ball rolling
+STYLE: Reference what they said, add something new.
+GOOD EXAMPLES:
+- "That makes sense. When you tried X, did you run into Y issue?"
+- "Interesting point about scaling. Have you seen this work with smaller teams?"
+BAD EXAMPLES:
+- "Following up on our previous conversation..."
+- "I wanted to circle back on..."
+RULES:
+- Acknowledge their last point briefly
+- Ask a follow-up question or add insight
+- Move conversation forward`,
+
+  cold_outreach: `WRITE LIKE: Warm intro that respects their time
+STYLE: Brief, clear value, easy to respond to.
+GOOD EXAMPLES:
+- "Saw your post on X. We're solving similar problems - mind if I share what we're seeing?"
+- "Quick question: have you explored Y approach? We've had interesting results"
+BAD EXAMPLES:
+- "I came across your profile and..."
+- "I wanted to reach out because..."
+RULES:
+- Lead with why you're reaching out
+- Keep it under 2 sentences
+- Make it easy to say yes or no`,
+
+  collaborative: `WRITE LIKE: Exploring partnership opportunities
+STYLE: Open, curious, not pushy.
+GOOD EXAMPLES:
+- "This is really interesting. Have you considered partnering with companies in X space?"
+- "We're working on something similar. Would love to compare notes if you're open to it"
+BAD EXAMPLES:
+- "I think we should work together..."
+- "Let me tell you about my company..."
+RULES:
+- Express interest without commitment
+- Focus on mutual benefit
+- Leave room for them to suggest next steps`,
+
+  gratitude: `WRITE LIKE: Quick thank you that feels genuine
+STYLE: Specific, warm, not over the top.
+GOOD EXAMPLES:
+- "Thanks for sharing this - exactly what I needed to hear today"
+- "Appreciate you taking the time to explain. Really helpful perspective"
+BAD EXAMPLES:
+- "Thank you so much for your valuable insights..."
+- "I am incredibly grateful for..."
+RULES:
+- Be specific about what you're thankful for
+- One sentence is often enough
+- Don't overdo it`
+};
+
+// Message type labels
+const MESSAGE_TYPE_LABELS = {
+  professional_networking: 'Professional Networking',
+  casual_friendly: 'Casual Friendly',
+  follow_up: 'Follow Up',
+  cold_outreach: 'Cold Outreach',
+  collaborative: 'Collaborative',
+  gratitude: 'Gratitude'
+};
+
 // State
 let availableModels = [];
 let selectedModelId = null;
 let customPrompts = {};
+let customMessagePrompts = {};
 
 // Conditional logger
 const log = CONFIG.DEBUG ? console.log : () => {};
@@ -170,8 +262,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const allSpeedsList = document.getElementById('allSpeedsList');
   const promptsContainer = document.getElementById('promptsContainer');
   const saveBtn = document.getElementById('saveBtn');
-  const eyeIcon = toggleApiKeyBtn.querySelector('.eye-icon');
-  const eyeOffIcon = toggleApiKeyBtn.querySelector('.eye-off-icon');
+  const eyeIcon = toggleApiKeyBtn?.querySelector('.eye-icon');
+  const eyeOffIcon = toggleApiKeyBtn?.querySelector('.eye-off-icon');
 
   // Load saved settings
   async function loadSettings() {
@@ -179,7 +271,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       'apiKey',
       'selectedModel',
       'availableModels',
-      'customPrompts'
+      'customPrompts',
+      'customMessagePrompts'
     ]);
 
     if (settings.apiKey) {
@@ -189,6 +282,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Load custom prompts or use defaults
     customPrompts = settings.customPrompts || {};
     renderPromptEditors();
+
+    // Load custom message prompts or use defaults
+    customMessagePrompts = settings.customMessagePrompts || {};
+    renderMessagePromptEditors();
 
     selectedModelId = settings.selectedModel || null;
 
@@ -227,6 +324,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           <textarea 
             class="prompt-textarea" 
             data-type="${type}"
+            data-prompt-type="comment"
             placeholder="Enter custom prompt..."
             rows="8"
           >${currentPrompt}</textarea>
@@ -277,6 +375,89 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (badge) badge.remove();
         
         showToast(`${COMMENT_TYPE_LABELS[type]} reset to default`, 'success');
+      });
+    });
+  }
+
+  // Render message prompt editors
+  function renderMessagePromptEditors() {
+    const messagePromptsContainer = document.getElementById('messagePromptsContainer');
+    if (!messagePromptsContainer) return;
+    
+    messagePromptsContainer.innerHTML = '';
+    
+    Object.keys(DEFAULT_MESSAGE_PROMPTS).forEach(type => {
+      const promptItem = document.createElement('div');
+      promptItem.className = 'prompt-item';
+      
+      const isCustom = customMessagePrompts[type] && customMessagePrompts[type] !== DEFAULT_MESSAGE_PROMPTS[type];
+      const currentPrompt = customMessagePrompts[type] || DEFAULT_MESSAGE_PROMPTS[type];
+      
+      promptItem.innerHTML = `
+        <div class="prompt-header" data-type="${type}">
+          <div class="prompt-title">
+            <span class="prompt-label">${MESSAGE_TYPE_LABELS[type]}</span>
+            ${isCustom ? '<span class="prompt-badge">Custom</span>' : ''}
+          </div>
+          <svg class="prompt-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="prompt-editor" style="display: none;">
+          <textarea 
+            class="prompt-textarea" 
+            data-type="${type}"
+            data-prompt-type="message"
+            placeholder="Enter custom prompt..."
+            rows="8"
+          >${currentPrompt}</textarea>
+          <div class="prompt-actions">
+            <button class="btn btn-secondary btn-sm prompt-reset" data-type="${type}">
+              Reset to Default
+            </button>
+          </div>
+        </div>
+      `;
+      
+      messagePromptsContainer.appendChild(promptItem);
+    });
+    
+    // Add click handlers for expanding/collapsing
+    messagePromptsContainer.querySelectorAll('.prompt-header').forEach(header => {
+      header.addEventListener('click', () => {
+        const editor = header.nextElementSibling;
+        const chevron = header.querySelector('.prompt-chevron');
+        const isExpanded = editor.style.display !== 'none';
+        
+        // Close all others
+        messagePromptsContainer.querySelectorAll('.prompt-editor').forEach(ed => ed.style.display = 'none');
+        messagePromptsContainer.querySelectorAll('.prompt-chevron').forEach(ch => ch.style.transform = '');
+        
+        // Toggle current
+        if (!isExpanded) {
+          editor.style.display = 'block';
+          chevron.style.transform = 'rotate(180deg)';
+        }
+      });
+    });
+    
+    // Add reset handlers
+    messagePromptsContainer.querySelectorAll('.prompt-reset').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const type = btn.dataset.type;
+        const textarea = messagePromptsContainer.querySelector(`textarea[data-type="${type}"]`);
+        textarea.value = DEFAULT_MESSAGE_PROMPTS[type];
+        
+        // Remove custom status
+        delete customMessagePrompts[type];
+        
+        // Update badge
+        const header = btn.closest('.prompt-item').querySelector('.prompt-header');
+        const badge = header.querySelector('.prompt-badge');
+        if (badge) badge.remove();
+        
+        showToast(`${MESSAGE_TYPE_LABELS[type]} reset to default`, 'success');
       });
     });
   }
@@ -455,10 +636,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     return prompts;
   }
 
+  // Collect custom message prompts from editors
+  function collectCustomMessagePrompts() {
+    const prompts = {};
+    const messagePromptsContainer = document.getElementById('messagePromptsContainer');
+    if (!messagePromptsContainer) return prompts;
+    
+    const textareas = messagePromptsContainer.querySelectorAll('.prompt-textarea');
+    
+    textareas.forEach(textarea => {
+      const type = textarea.dataset.type;
+      const value = textarea.value.trim();
+      
+      // Only save if it's different from default
+      if (value && value !== DEFAULT_MESSAGE_PROMPTS[type]) {
+        prompts[type] = value;
+      }
+    });
+    
+    return prompts;
+  }
+
   // Save settings
   saveBtn.addEventListener('click', async () => {
     const apiKey = apiKeyInput.value.trim();
     const newCustomPrompts = collectCustomPrompts();
+    const newCustomMessagePrompts = collectCustomMessagePrompts();
 
     // Validation
     if (!apiKey) {
@@ -480,14 +683,17 @@ document.addEventListener('DOMContentLoaded', async () => {
       await chrome.storage.local.set({
         apiKey: apiKey,
         selectedModel: selectedModelId,
-        customPrompts: newCustomPrompts
+        customPrompts: newCustomPrompts,
+        customMessagePrompts: newCustomMessagePrompts
       });
 
       // Update local state
       customPrompts = newCustomPrompts;
+      customMessagePrompts = newCustomMessagePrompts;
       
       // Update badges
       renderPromptEditors();
+      renderMessagePromptEditors();
 
       showToast('Settings saved successfully', 'success');
     } catch (error) {
@@ -713,4 +919,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Initial load
   loadSettings();
+
+  // Expose default prompts globally for debugging
+  window.DEFAULT_PROMPTS = DEFAULT_PROMPTS;
+  window.DEFAULT_MESSAGE_PROMPTS = DEFAULT_MESSAGE_PROMPTS;
 });

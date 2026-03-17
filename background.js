@@ -318,6 +318,29 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
   
+  if (request.action === 'generateMessageReplies') {
+    handleGenerateMessageReplies(request.data)
+      .then(result => {
+        console.log('[Background] Generated message replies successfully');
+        sendResponse({
+          replies: result.replies,
+          usedFallback: result.usedFallback,
+          model: result.model
+        });
+        if (chrome.runtime.lastError) {
+          console.error('[Background] Message error:', chrome.runtime.lastError);
+        }
+      })
+      .catch(error => {
+        console.error('[Background] Error generating message replies:', error);
+        sendResponse({ error: error.message });
+        if (chrome.runtime.lastError) {
+          console.error('[Background] Message error:', chrome.runtime.lastError);
+        }
+      });
+    return true;
+  }
+  
   // Unknown action
   console.warn('[Background] Unknown action:', request.action);
   sendResponse({ error: 'Unknown action: ' + request.action });
@@ -420,6 +443,123 @@ async function handleGenerateComments(data) {
     console.log('[Background] Parsed comments:', comments.length);
     
     return { comments, usedFallback: isFallback, model: modelToUse };
+  }
+  
+  // Try with selected model first
+  try {
+    return await tryGenerateWithModel(model, false);
+  } catch (error) {
+    console.error('[Background] Primary model failed:', error.message);
+    
+    // If primary model failed and it's not already the fallback, try fallback
+    if (model !== FALLBACK_MODEL) {
+      console.log('[Background] Retrying with fallback model:', FALLBACK_MODEL);
+      try {
+        return await tryGenerateWithModel(FALLBACK_MODEL, true);
+      } catch (fallbackError) {
+        console.error('[Background] Fallback model also failed:', fallbackError.message);
+        throw new Error(`Both primary and fallback models failed. ${fallbackError.message}`);
+      }
+    } else {
+      // Already using fallback and it failed
+      throw error;
+    }
+  }
+}
+
+// Generate message replies using OpenRouter API
+async function handleGenerateMessageReplies(data) {
+  console.log('[Background] handleGenerateMessageReplies called with:', {
+    messageType: data.messageType,
+    conversationLength: data.conversationData?.messages?.length,
+    recipient: data.conversationData?.recipient
+  });
+  
+  const { conversationData, messageType } = data;
+  
+  // Get settings from storage
+  console.log('[Background] Loading settings from storage...');
+  const settings = await chrome.storage.local.get(['apiKey', 'selectedModel', 'userProfile', 'customMessagePrompts']);
+  console.log('[Background] Settings loaded:', {
+    hasApiKey: !!settings.apiKey,
+    selectedModel: settings.selectedModel,
+    hasUserProfile: !!settings.userProfile,
+    hasCustomMessagePrompts: !!settings.customMessagePrompts
+  });
+
+  if (!settings.apiKey) {
+    console.error('[Background] API key not configured');
+    throw new Error('API key not configured. Please add your OpenRouter API key in settings.');
+  }
+
+  const model = settings.selectedModel || 'meta-llama/llama-3.1-8b-instruct';
+  const userProfile = settings.userProfile || '';
+  const customPrompts = settings.customMessagePrompts || {};
+
+  console.log('[Background] Building message prompt for type:', messageType);
+  // Build the prompt with custom prompts
+  const prompt = buildMessagePrompt(conversationData, messageType, userProfile, customPrompts);
+  console.log('[Background] Message prompt built, length:', prompt.length);
+
+  // Reliable fallback model
+  const FALLBACK_MODEL = 'meta-llama/llama-3.1-8b-instruct';
+  
+  async function tryGenerateWithModel(modelToUse, isFallback = false) {
+    console.log(`[Background] Making API request to OpenRouter with model: ${modelToUse}${isFallback ? ' (FALLBACK)' : ''}`);
+    
+    const response = await fetch(OPENROUTER_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${settings.apiKey}`,
+        'HTTP-Referer': 'https://linkedin.com',
+        'X-Title': 'LinkedIn Comment Assistant'
+      },
+      body: JSON.stringify({
+        model: modelToUse,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a helpful assistant that writes SHORT, NATURAL LinkedIn messages (1-2 sentences, 10-30 words each). Your replies are conversational, authentic, and sound like they were written quickly by a real person.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: CONFIG.API.TEMPERATURE,
+        max_tokens: CONFIG.API.MAX_TOKENS
+      })
+    });
+
+    console.log('[Background] API response received, status:', response.status);
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('[Background] API request failed:', response.status, errorData);
+      throw new Error(errorData.error?.message || `API request failed: ${response.status}`);
+    }
+
+    const result = await response.json();
+    console.log('[Background] API result received, has choices:', !!result.choices);
+    console.log('[Background] Full result keys:', Object.keys(result));
+    
+    // Validate the API response structure
+    const validation = validateChatCompletionResponse(result);
+    if (!validation.valid) {
+      console.error('[Background] Response validation failed:', validation.error);
+      throw new Error(`Invalid API response: ${validation.error}`);
+    }
+
+    // Extract the validated content
+    const content = validation.content;
+    console.log('[Background] Validated API content length:', content.length);
+    console.log('[Background] Raw API content:', content.substring(0, 500));
+    
+    const replies = parseMessageRepliesFromResponse(content);
+    console.log('[Background] Parsed replies:', replies.length);
+    
+    return { replies, usedFallback: isFallback, model: modelToUse };
   }
   
   // Try with selected model first
@@ -707,6 +847,424 @@ All three should be different angles or approaches to the same post. They should
 {"comments":[{"text":"First comment here"},{"text":"Second comment here"},{"text":"Third comment here"}]}`;
 
   return prompt;
+}
+
+// Build the prompt for message reply generation
+function buildMessagePrompt(conversationData, messageType, userProfile, customPrompts = {}) {
+  // Message type descriptions and style guides
+  const typeDescriptions = {
+    professional_networking: 'Polished, industry-appropriate response that maintains professionalism',
+    casual_friendly: 'Friendly and approachable tone, like talking to a colleague',
+    follow_up: 'Keep the conversation moving forward, reference previous messages',
+    cold_outreach: 'Warm but professional approach, clear but not pushy',
+    collaborative: 'Open to working together, exploring opportunities',
+    gratitude: 'Thankful and appreciative, acknowledging their time or message'
+  };
+
+  // Detailed style guides for each message type - SHORTER for messages
+  const styleGuides = {
+    professional_networking: `
+WRITE LIKE: Quick professional note between colleagues
+STYLE: Polished but brief, gets to the point fast.
+GOOD EXAMPLES:
+- "Thanks for sharing this. Would love to connect and hear more about your work in AI."
+- "This aligns with what we're building. Mind if I reach out about potential collaboration?"
+BAD EXAMPLES:
+- "I hope this message finds you well..."
+- "I wanted to take a moment to introduce myself..."
+RULES:
+- 1-2 sentences max
+- Skip formal greetings and closings
+- Be direct about next steps or interest`,
+
+    casual_friendly: `
+WRITE LIKE: Slack message to a coworker you like
+STYLE: Relaxed, conversational, uses casual language.
+GOOD EXAMPLES:
+- "Haha same! This is exactly what I needed today"
+- "Love this perspective. How long have you been working on this?"
+BAD EXAMPLES:
+- "I completely agree with your assessment..."
+- "Thank you for your thoughtful message..."
+RULES:
+- Use contractions: I'm, don't, can't
+- Short sentences are fine
+- Show personality`,
+
+    follow_up: `
+WRITE LIKE: Keeping the ball rolling
+STYLE: Reference what they said, add something new.
+GOOD EXAMPLES:
+- "That makes sense. When you tried X, did you run into Y issue?"
+- "Interesting point about scaling. Have you seen this work with smaller teams?"
+BAD EXAMPLES:
+- "Following up on our previous conversation..."
+- "I wanted to circle back on..."
+RULES:
+- Acknowledge their last point briefly
+- Ask a follow-up question or add insight
+- Move conversation forward`,
+
+    cold_outreach: `
+WRITE LIKE: Warm intro that respects their time
+STYLE: Brief, clear value, easy to respond to.
+GOOD EXAMPLES:
+- "Saw your post on X. We're solving similar problems - mind if I share what we're seeing?"
+- "Quick question: have you explored Y approach? We've had interesting results"
+BAD EXAMPLES:
+- "I came across your profile and..."
+- "I wanted to reach out because..."
+RULES:
+- Lead with why you're reaching out
+- Keep it under 2 sentences
+- Make it easy to say yes or no`,
+
+    collaborative: `
+WRITE LIKE: Exploring partnership opportunities
+STYLE: Open, curious, not pushy.
+GOOD EXAMPLES:
+- "This is really interesting. Have you considered partnering with companies in X space?"
+- "We're working on something similar. Would love to compare notes if you're open to it"
+BAD EXAMPLES:
+- "I think we should work together..."
+- "Let me tell you about my company..."
+RULES:
+- Express interest without commitment
+- Focus on mutual benefit
+- Leave room for them to suggest next steps`,
+
+    gratitude: `
+WRITE LIKE: Quick thank you that feels genuine
+STYLE: Specific, warm, not over the top.
+GOOD EXAMPLES:
+- "Thanks for sharing this - exactly what I needed to hear today"
+- "Appreciate you taking the time to explain. Really helpful perspective"
+BAD EXAMPLES:
+- "Thank you so much for your valuable insights..."
+- "I am incredibly grateful for..."
+RULES:
+- Be specific about what you're thankful for
+- One sentence is often enough
+- Don't overdo it`
+  };
+
+  // Anti-AI rules specific to messaging
+  const antiAIRules = `
+AVOID THESE AI GIVEAWAYS:
+- ❌ "I hope this message finds you well"
+- ❌ "Thank you for reaching out"
+- ❌ Perfect grammar throughout (use contractions!)
+- ❌ Formal closings: "Best regards", "Sincerely"
+- ❌ "I wanted to..."
+- ❌ Multiple paragraphs
+- ❌ Overly enthusiastic punctuation!!!
+
+INSTEAD, USE:
+- ✅ Short, punchy sentences
+- ✅ Contractions: I'm, don't, can't, we're
+- ✅ Casual connectors: tbh, actually, honestly
+- ✅ Imperfect grammar is GOOD
+- ✅ Skip greetings when replying to an ongoing conversation
+- ✅ Show you're actually reading their message`;
+
+  let prompt = `Write 3 reply options for this LinkedIn conversation.`;
+
+  // Add recipient info
+  if (conversationData.recipient) {
+    prompt += `\n\nCONVERSATION WITH: ${conversationData.recipient}`;
+  }
+
+  // Add shared post content if present
+  if (conversationData.sharedPost) {
+    prompt += `\n\nSHARED POST CONTENT:`;
+    if (conversationData.sharedPost.author) {
+      prompt += `\nPost by: ${conversationData.sharedPost.author}`;
+    }
+    if (conversationData.sharedPost.text) {
+      prompt += `\n"""${conversationData.sharedPost.text.substring(0, 500)}"""`;
+    }
+  }
+
+  // Add conversation history (last 20 messages)
+  if (conversationData.messages && conversationData.messages.length > 0) {
+    prompt += `\n\nCONVERSATION HISTORY (${conversationData.messages.length} messages):\n`;
+    conversationData.messages.forEach((msg, idx) => {
+      const sender = msg.isSent ? 'You' : (msg.sender || 'Them');
+      prompt += `\n${sender}: ${msg.text.substring(0, 200)}${msg.text.length > 200 ? '...' : ''}`;
+    });
+    
+    // Highlight the most recent message
+    const lastMessage = conversationData.messages[conversationData.messages.length - 1];
+    if (lastMessage && !lastMessage.isSent) {
+      prompt += `\n\nMOST RECENT MESSAGE (Reply to this):\n${lastMessage.sender || 'Them'}: ${lastMessage.text}`;
+    }
+  }
+
+  prompt += `\n\nREPLY TYPE: ${messageType}
+OBJECTIVE: ${typeDescriptions[messageType] || 'write a natural reply'}`;
+
+  // Add style guide for this message type - use custom prompt if available
+  const styleGuide = customPrompts[messageType] || styleGuides[messageType];
+  if (styleGuide) {
+    prompt += `\n\nSTYLE GUIDE FOR THIS REPLY TYPE:${styleGuide}`;
+  }
+
+  if (userProfile) {
+    prompt += `\n\nABOUT YOU:\n${userProfile}\n\nUse this context to personalize the reply appropriately.`;
+  }
+
+  prompt += `\n\n${antiAIRules}`;
+
+  prompt += `\n\nWRITE NATURAL MESSAGES - KEY RULES:
+- 1-2 sentences max. Seriously short.
+- Write like you're typing on your phone between meetings
+- Skip formal structure entirely
+- Use contractions: I'm, don't, can't, we're
+- Casual abbreviations: tbh, actually, ngl
+- Imperfect grammar is BETTER than perfect grammar
+- Sometimes start with lowercase
+- Trail off with "..." occasionally
+- 10-30 words ideal (5 words is fine too!)`;
+
+  prompt += `\n\nREAL EXAMPLES THAT SOUND HUMAN:
+- "Thanks for sharing this. Would love to hear more about your approach."
+- "Haha same! This is exactly what I needed"
+- "That makes sense. Did you run into any scaling issues?"
+- "Love this perspective. How long have you been working on it?"
+- "This aligns with what we're building. Mind if I reach out?"
+- "Saw your post. We're solving similar problems - mind if I share what we're seeing?"
+- "Thanks for explaining. Really helpful perspective on this"`;
+
+  prompt += `\n\nMAKE IT SOUND NATURAL:
+- Don't explain yourself fully
+- Use lowercase sometimes at the start
+- Drop words occasionally
+- React, don't overthink
+- Skip transitions entirely
+- One idea per message`;
+
+  prompt += `\n\nNEVER DO THIS:
+- "I hope this message finds you well"
+- "Thank you for reaching out"
+- "Best regards" or "Sincerely"
+- Multiple sentences explaining your background
+- "I wanted to take a moment to..."
+- Perfect formal grammar throughout`;
+
+  prompt += `\n\nTHE SECRET: Write fast, hit send. Replies should feel immediate and effortless.`;
+
+  prompt += `\n\n${antiAIRules}`;
+
+  prompt += `\n\nGENERATE 3 DIFFERENT REPLY OPTIONS:
+All three should be different approaches. They should feel like they came from three different real people replying quickly. No labels needed, just three distinct natural replies.`;
+
+  prompt += `\n\nIMPORTANT: Respond with ONLY a valid JSON object in this exact format (no markdown, no code blocks, no extra text):
+{"replies":[{"text":"First reply here"},{"text":"Second reply here"},{"text":"Third reply here"}]}`;
+
+  return prompt;
+}
+
+// Parse message replies from API response
+function parseMessageRepliesFromResponse(content) {
+  console.log('[Background] parseMessageRepliesFromResponse called, content length:', content.length);
+  
+  // Clean the content - remove markdown code blocks if present
+  let cleanContent = content
+    .replace(/```json\n?/g, '')
+    .replace(/```\n?/g, '')
+    .trim();
+  
+  console.log('[Background] Cleaned content (first 200 chars):', cleanContent.substring(0, 200));
+  
+  // Try to extract JSON from the content
+  const jsonMatch = cleanContent.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    cleanContent = jsonMatch[0];
+    console.log('[Background] Found JSON match, extracted object');
+  }
+
+  let parsedReplies = null;
+
+  try {
+    // Try to parse as JSON
+    const parsed = JSON.parse(cleanContent);
+    console.log('[Background] Successfully parsed JSON, has replies:', !!parsed.replies);
+    
+    if (parsed.replies && Array.isArray(parsed.replies)) {
+      console.log('[Background] JSON parsing successful, found', parsed.replies.length, 'replies');
+      parsedReplies = parsed.replies;
+    } else if (parsed.reply && typeof parsed.reply === 'string') {
+      // Handle single reply format
+      parsedReplies = [{ text: parsed.reply }];
+    } else if (Array.isArray(parsed)) {
+      // Handle direct array format
+      parsedReplies = parsed;
+    } else {
+      console.log('[Background] JSON parsed but no recognized reply structure found');
+    }
+  } catch (e) {
+    console.log('[Background] JSON parsing failed:', e.message);
+  }
+
+  // Validate JSON-parsed replies if found
+  if (parsedReplies) {
+    const validation = validateFinalRepliesArray(parsedReplies);
+    if (validation.valid) {
+      console.log('[Background] JSON replies validated:', validation.replies.length);
+      return validation.replies;
+    }
+    console.log('[Background] JSON replies validation failed:', validation.error);
+  }
+
+  // Fallback: extract replies using various patterns
+  const replies = [];
+  
+  // Pattern 1: Look for "Reply X:" or "Option X:" format
+  const replyPattern = /(?:reply|option)\s*\d*[\s:]*["']?([^"']+)["']?/gi;
+  let match;
+  while ((match = replyPattern.exec(cleanContent)) !== null && replies.length < 3) {
+    const text = match[1].trim();
+    if (text.length > 5 && text.length < 300) {
+      replies.push({ text });
+    }
+  }
+  console.log('[Background] Pattern 1 found:', replies.length, 'replies');
+  
+  // Pattern 2: Split by newlines and look for substantial lines
+  if (replies.length === 0) {
+    const lines = cleanContent.split('\n').filter(line => line.trim());
+    console.log('[Background] Pattern 2: checking', lines.length, 'lines');
+    
+    for (const line of lines) {
+      // Remove markdown formatting and common prefixes
+      const cleaned = line
+        .replace(/^\d+[.):\-]\s*/, '')
+        .replace(/^[*\-]\s*/, '')
+        .replace(/^["']|["']$/g, '')
+        .replace(/^text\s*:\s*["']?/, '')
+        .replace(/["']?\s*,?\s*$/, '')
+      .trim();
+      
+      if (cleaned && cleaned.length > 10 && cleaned.length < 300 && !cleaned.includes('{') && !cleaned.includes('}')) {
+        replies.push({ text: cleaned });
+      }
+      if (replies.length >= 3) break;
+    }
+    console.log('[Background] Pattern 2 found:', replies.length, 'replies');
+  }
+
+  // Pattern 3: If no structured replies found, split by sentences
+  if (replies.length === 0) {
+    const sentences = cleanContent.match(/[^.!?]+[.!?]+/g) || [];
+    console.log('[Background] Pattern 3: checking', sentences.length, 'sentences');
+    if (sentences.length >= 3) {
+      replies.push({ text: sentences[0].trim() });
+      replies.push({ text: sentences[1].trim() });
+      replies.push({ text: sentences[2].trim() });
+    } else if (sentences.length >= 2) {
+      replies.push({ text: sentences[0].trim() });
+      replies.push({ text: sentences[1].trim() });
+    }
+    console.log('[Background] Pattern 3 found:', replies.length, 'replies');
+  }
+
+  // Last resort: use the whole content
+  if (replies.length === 0) {
+    console.log('[Background] Last resort: using truncated content');
+    replies.push({ text: cleanContent.substring(0, 300).trim() });
+  }
+
+  // Final validation of fallback replies
+  const finalValidation = validateFinalRepliesArray(replies);
+  if (finalValidation.valid) {
+    console.log('[Background] Total replies returned:', finalValidation.replies.length);
+    return finalValidation.replies;
+  }
+
+  // Ultimate fallback: return the raw content as a single reply
+  console.log('[Background] All validation failed, returning raw content');
+  return [{ text: cleanContent.substring(0, 300).trim() || 'Unable to parse reply' }];
+}
+
+// Validate the final replies array before returning to content script
+function validateFinalRepliesArray(replies) {
+  if (!Array.isArray(replies)) {
+    return { valid: false, error: 'Replies is not an array' };
+  }
+
+  if (replies.length === 0) {
+    return { valid: false, error: 'No valid replies could be extracted' };
+  }
+
+  // Validate each reply and filter out invalid ones
+  const validReplies = [];
+  for (let i = 0; i < replies.length; i++) {
+    const validation = validateReplyObject(replies[i], i);
+    if (validation.valid) {
+      validReplies.push({ text: validation.text });
+    } else {
+      log(`[Background] Skipping invalid reply: ${validation.error}`);
+    }
+  }
+
+  if (validReplies.length === 0) {
+    return { valid: false, error: 'All replies were invalid after validation' };
+  }
+
+  // Limit to maximum 3 replies
+  if (validReplies.length > 3) {
+    log(`[Background] Limiting ${validReplies.length} replies to 3`);
+    validReplies.splice(3);
+  }
+
+  return { valid: true, replies: validReplies };
+}
+
+// Validate a parsed reply object
+function validateReplyObject(reply, index) {
+  // Handle string replies (convert to object)
+  if (typeof reply === 'string') {
+    const trimmed = reply.trim();
+    if (trimmed.length === 0) {
+      return { valid: false, error: `Reply ${index} is empty string` };
+    }
+    if (trimmed.length > 500) {
+      log(`[Background] Warning: Reply ${index} exceeds 500 chars, truncating`);
+      return { valid: true, text: trimmed.substring(0, 500) };
+    }
+    return { valid: true, text: trimmed };
+  }
+
+  // Check if reply is an object
+  if (!reply || typeof reply !== 'object') {
+    return { valid: false, error: `Reply ${index} is not a valid object or string` };
+  }
+
+  // Check for text field
+  if (reply.text === undefined || reply.text === null) {
+    // Try alternative fields
+    const textValue = reply.content || reply.message || reply.reply;
+    if (typeof textValue === 'string') {
+      const trimmed = textValue.trim();
+      if (trimmed.length > 0) {
+        return { valid: true, text: trimmed.substring(0, 500) };
+      }
+    }
+    return { valid: false, error: `Reply ${index} missing valid text field` };
+  }
+
+  // Validate text field
+  const text = String(reply.text).trim();
+  if (text.length === 0) {
+    return { valid: false, error: `Reply ${index} has empty text` };
+  }
+
+  if (text.length > 500) {
+    log(`[Background] Warning: Reply ${index} exceeds 500 chars, truncating`);
+    return { valid: true, text: text.substring(0, 500) };
+  }
+
+  return { valid: true, text };
 }
 
 // Parse comments from API response
